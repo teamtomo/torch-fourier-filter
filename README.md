@@ -6,4 +6,4 @@
 [![CI](https://github.com/jdickerson95/torch-fourier-filter/actions/workflows/ci.yml/badge.svg)](https://github.com/jdickerson95/torch-fourier-filter/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/jdickerson95/torch-fourier-filter/branch/main/graph/badge.svg)](https://codecov.io/gh/jdickerson95/torch-fourier-filter)
 
-Filters for image and volumes in pyTorch
+Fourier space filters for image and volumes in pyTorch

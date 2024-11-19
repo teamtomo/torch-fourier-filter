@@ -1,4 +1,4 @@
-"""Filters for image and volumes in pyTorch"""
+"""Filters for image and volumes in pyTorch."""
 
 from importlib.metadata import PackageNotFoundError, version
 
