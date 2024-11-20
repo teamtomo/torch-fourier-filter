@@ -102,7 +102,7 @@ def rotational_average_dft_3d(
     """
     # calculate the number of frequency bins
     d, h, w = image_shape[-3:]
-    n_bins = min((d // 2) + 1 for d in (h, w))
+    n_bins = min((i // 2) + 1 for i in (h, w))
 
     # split data into frequency bins
     frequency_bins = _frequency_bin_centers(n_bins, device=dft.device)

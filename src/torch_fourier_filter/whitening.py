@@ -8,6 +8,7 @@ from torch_fourier_filter.dft_utils import (
     _1d_to_rotational_average_2d_dft,
     _1d_to_rotational_average_3d_dft,
     rotational_average_dft_2d,
+    rotational_average_dft_3d,
 )
 
 
@@ -41,13 +42,20 @@ def gaussian_smoothing(
     kernel = torch.exp(-0.5 * (x / sigma) ** 2)
     kernel = kernel / kernel.sum()
 
+    # Debug: Print the kernel
+    print("Gaussian kernel:", kernel)
+
     # Reshape kernel for convolution
     kernel = einops.rearrange(kernel, "k -> 1 1 k")
 
     # Apply the Gaussian kernel to the tensor
     tensor = einops.rearrange(tensor, "n -> 1 1 n")  # Add batch and channel dimensions
     smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2)
-    return einops.rearrange(smoothed_tensor, "1 1 n -> n")
+
+    # Debug: Print the smoothed tensor
+    print("Smoothed tensor:", smoothed_tensor.view(-1))
+
+    return smoothed_tensor.view(-1)
 
 
 def whitening_filter(
@@ -57,6 +65,7 @@ def whitening_filter(
     fftshift: bool = False,
     dimensions_output: int = 2,  # 1/2/3D filter
     smoothing: bool = False,
+    power_spec: bool = True,
 ) -> torch.tensor:
     """
     Create a whitening filter from an image DFT.
@@ -75,30 +84,43 @@ def whitening_filter(
         The number of dimensions of the output filter (1/2/3)
     smoothing: bool
         Whether to apply Gaussian smoothing to the filter
+    power_spec: bool
+        Whether to use the power spectrum instead or the amplitude spectrum
 
     Returns
     -------
     torch.Tensor
         Whitening filter
     """
-    power_spectrum = torch.absolute(image_dft) ** 2  # power spectrum
-    radial_average, _ = rotational_average_dft_2d(
-        dft=power_spectrum,
-        image_shape=image_shape,
-        rfft=rfft,
-        fftshifted=fftshift,
-        return_2d_average=False,  # output 1D average
-    )
+    power_spectrum = torch.absolute(image_dft)
+    if power_spec:
+        power_spectrum = power_spectrum**2
+    radial_average = None
+    if len(image_shape) == 2:
+        radial_average, _ = rotational_average_dft_2d(
+            dft=power_spectrum,
+            image_shape=image_shape,
+            rfft=rfft,
+            fftshifted=fftshift,
+            return_2d_average=False,  # output 1D average
+        )
+    elif len(image_shape) == 3:
+        radial_average, _ = rotational_average_dft_3d(
+            dft=power_spectrum,
+            image_shape=image_shape,
+            rfft=rfft,
+            fftshifted=fftshift,
+            return_3d_average=False,  # output 1D average
+        )
 
     # Take the reciprical of the square root of the radial average
-    whiten_filter = 1 / (radial_average[0]) ** 0.5
+    whiten_filter = 1 / (radial_average)
+    if power_spec:
+        whiten_filter = whiten_filter**0.5
 
     # Apply Gaussian smoothing
     if smoothing:
         whiten_filter = gaussian_smoothing(whiten_filter)
-
-    # Normalize the filter
-    whiten_filter /= whiten_filter.max()
 
     # put back to 2 or 3D if necessary
     if dimensions_output == 2:
@@ -119,5 +141,8 @@ def whitening_filter(
             rfft=rfft,
             fftshifted=fftshift,
         )
+
+    # Normalize the filter
+    whiten_filter /= whiten_filter.max()
 
     return whiten_filter
