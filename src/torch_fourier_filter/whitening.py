@@ -5,10 +5,8 @@ import torch
 import torch.nn.functional as F
 
 from torch_fourier_filter.dft_utils import (
-    _1d_to_rotational_average_2d_dft,
-    _1d_to_rotational_average_3d_dft,
-    rotational_average_dft_2d,
-    rotational_average_dft_3d,
+    _1d_to_rotational_average_nd_dft,
+    rotational_average_dft,
 )
 
 
@@ -42,8 +40,8 @@ def gaussian_smoothing(
     kernel = torch.exp(-0.5 * (x / sigma) ** 2)
     kernel = kernel / kernel.sum()
 
-    # Debug: Print the kernel
-    print("Gaussian kernel:", kernel)
+    # # Debug: Print the kernel
+    # print("Gaussian kernel:", kernel)
 
     # Reshape kernel for convolution
     kernel = einops.rearrange(kernel, "k -> 1 1 k")
@@ -52,14 +50,80 @@ def gaussian_smoothing(
     tensor = einops.rearrange(tensor, "n -> 1 1 n")  # Add batch and channel dimensions
     smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2)
 
-    # Debug: Print the smoothed tensor
-    print("Smoothed tensor:", smoothed_tensor.view(-1))
+    # # Debug: Print the smoothed tensor
+    # print("Smoothed tensor:", smoothed_tensor.view(-1))
 
     return smoothed_tensor.view(-1)
 
 
+def whitening_filter_from_1d_power_spectrum(
+    power_spectrum: torch.Tensor,
+    filter_shape: tuple[int, ...],
+    power_spec: bool = True,
+    smoothing: bool = False,
+    power_spectrum_pixel_size: float = 1.0,
+    filter_pixel_size: float = 1.0,
+    rfft: bool = False,
+    fftshifted: bool = False,
+) -> torch.Tensor:
+    """Calculate a whitening filter for a known 1D power spectrum.
+
+    NOTE: While the units for both the power spectrum and filter pixel sizes are
+    defined in Angstroms, only their relative ratio is important for
+    determining the 1D to 2D/3D mapping.
+
+    NOTE: Different pixel sizes are not supported yet.
+
+    Parameters
+    ----------
+    power_spectrum : torch.Tensor
+        A 1D power spectrum.
+    filter_shape : tuple[int, ...]
+        The desired output shape of the filter in pixels. Either 2D or 3D.
+    power_spec : bool
+        Whether the input power spectrum is a power spectrum or amplitude spectrum.
+    smoothing : bool
+        Whether to apply Gaussian smoothing to the filter.
+    power_spectrum_pixel_size : float
+        The pixel size of the power spectrum in Angstroms.
+    filter_pixel_size : float
+        The pixel size of the filter in Angstroms.
+    rfft : bool
+        Whether the input is from an rfft (True) or full fft (False).
+    fftshifted : bool
+        Whether the input is fftshifted.
+
+    Returns
+    -------
+    torch.Tensor
+        The calculated whitening filter.
+    """
+    if power_spectrum_pixel_size != filter_pixel_size:
+        raise NotImplementedError("Currently support only one pixel size.")
+
+    # Take the reciprical of the square root of the radial average
+    whiten_filter = 1 / (power_spectrum)
+    if power_spec:
+        whiten_filter = whiten_filter**0.5
+
+    if smoothing:
+        whiten_filter = gaussian_smoothing(whiten_filter)
+
+    whiten_filter = _1d_to_rotational_average_nd_dft(
+        values=whiten_filter,
+        wanted_shape=filter_shape,
+        rfft=rfft,
+        fftshifted=fftshifted,
+    )
+
+    # Normalize the filter
+    whiten_filter /= whiten_filter.max()
+
+    return whiten_filter
+
+
 def whitening_filter(
-    image_dft: tuple[int, int] | tuple[int, int, int],
+    image_dft: torch.Tensor,
     image_shape: tuple[int, int] | tuple[int, int, int],
     rfft: bool = True,
     fftshift: bool = False,
@@ -92,57 +156,34 @@ def whitening_filter(
     torch.Tensor
         Whitening filter
     """
+    # Check the input parameters
+    assert image_dft.ndim == 2 or image_dft.ndim == 3, "Input must be 2D or 3D"
+    assert (
+        len(image_shape) == 2 or len(image_shape) == 3
+    ), "Image shape must be 2D or 3D"
+
+    # Calculate power spectrum based on intensity or amplitude.
     power_spectrum = torch.absolute(image_dft)
     if power_spec:
         power_spectrum = power_spectrum**2
-    radial_average = None
-    if len(image_shape) == 2:
-        radial_average, _ = rotational_average_dft_2d(
-            dft=power_spectrum,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
-            return_2d_average=False,  # output 1D average
-        )
-    elif len(image_shape) == 3:
-        radial_average, _ = rotational_average_dft_3d(
-            dft=power_spectrum,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
-            return_3d_average=False,  # output 1D average
-        )
 
-    # Take the reciprical of the square root of the radial average
-    whiten_filter = 1 / (radial_average)
-    if power_spec:
-        whiten_filter = whiten_filter**0.5
+    rotational_average, frequency_bins = rotational_average_dft(
+        dft=power_spectrum,
+        image_shape=image_shape,
+        rfft=rfft,
+        fftshifted=fftshift,
+        return_same_shape=False,  # output 1D average
+    )
 
-    # Apply Gaussian smoothing
-    if smoothing:
-        whiten_filter = gaussian_smoothing(whiten_filter)
+    whitening_filter = whitening_filter_from_1d_power_spectrum(
+        power_spectrum=rotational_average,
+        filter_shape=image_shape,
+        power_spec=power_spec,
+        smoothing=smoothing,
+        power_spectrum_pixel_size=1.0,
+        filter_pixel_size=1.0,
+        rfft=rfft,
+        fftshifted=fftshift,
+    )
 
-    # put back to 2 or 3D if necessary
-    if dimensions_output == 2:
-        if len(power_spectrum.shape) > len(image_shape):
-            image_shape = (*power_spectrum.shape[:-2], *image_shape[-2:])
-        whiten_filter = _1d_to_rotational_average_2d_dft(
-            values=radial_average,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
-        )
-    elif dimensions_output == 3:
-        if len(power_spectrum.shape) > len(image_shape):
-            image_shape = (*power_spectrum.shape[:-3], *image_shape[-3:])
-        whiten_filter = _1d_to_rotational_average_3d_dft(
-            values=radial_average,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
-        )
-
-    # Normalize the filter
-    whiten_filter /= whiten_filter.max()
-
-    return whiten_filter
+    return whitening_filter

@@ -8,43 +8,62 @@ from torch_grid_utils.coordinate_grid import coordinate_grid
 from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
 
-def rotational_average_dft_2d(
+def rotational_average_dft(
     dft: torch.Tensor,
     image_shape: tuple[int, ...],
     rfft: bool = False,
     fftshifted: bool = False,
-    return_2d_average: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:  # rotational_average, frequency_bins
-    """
-    Calculate the rotational average of a 2D DFT.
+    return_same_shape: bool = False,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Calculate the rotational average of a 2D or 3D DFT.
+
+    The returned frequency bins associated with the rotational average are in
+    units of inverse pixels.
 
     Parameters
     ----------
     dft : torch.Tensor
-        Complex tensor containing 2D Fourier transform(s). Can be batched with shape
-        (batch, h, w) or unbatched (h, w).
-    image_shape : tuple[int, ...]
-        Shape of the input image
+        Complex tensor containing 2D or 3D Fourier transform(s). Can be batched
+        with shape (batch, h, w) or unbatched (h, w) for 2D or (batch, d, h, w)
+        or unbatched (d, h, w) for 3D.
+    image_shape : tuple[int, int] | tuple[int, int, int]
+        Shape of the input image / volume. Batching is supported.
     rfft : bool
-        Whether the input is from an rfft (True) or full fft (False)
+        Whether the input is from an rfft (True) or full fft (False).
     fftshifted : bool
-        Whether the input is fftshifted
-    return_2d_average : bool
-        Whether to return the 2D rotational average and frequency bins
+        Whether the input is fftshifted.
+    return_same_shape : bool
+        If true, the returned rotational average and frequency bins will have
+        have the same shape as the input. Otherwise, the returned rotational
+        average will be 1D.
 
     Returns
     -------
-    torch.Tensor
-        Rotational average of the input DFT
+    tuple[torch.Tensor, torch.Tensor]
+        Rotational average of the input DFT and the associated frequency bins.
     """
-    # calculate the number of frequency bins
-    h, w = image_shape[-2:]
-    n_bins = min((d // 2) + 1 for d in (h, w))
+    _is_2d = len(image_shape) == 2
+    _is_3d = len(image_shape) == 3
+    _is_batched = len(dft.shape) > len(image_shape)  # TODO: check only +1 dim
+
+    if _is_2d:
+        shape = image_shape[-2:]
+    elif _is_3d:
+        shape = image_shape[-3:]
+    else:
+        raise ValueError("Only 2D and 3D images are supported.")
+
+    # Calculate the number of frequency bins to include in the average
+    n_bins = min((d // 2) + 1 for d in shape)
 
     # split data into frequency bins
     frequency_bins = _frequency_bin_centers(n_bins, device=dft.device)
-    shell_data = _split_into_frequency_bins_2d(
-        dft, n_bins=n_bins, image_shape=(h, w), rfft=rfft, fftshifted=fftshifted
+    shell_data = _split_into_frequency_bins(
+        dft=dft,
+        n_bins=n_bins,
+        image_shape=shape,
+        rfft=rfft,
+        fftshifted=fftshifted,
     )
 
     # calculate mean over each shell
@@ -53,85 +72,170 @@ def rotational_average_dft_2d(
         for shell in shell_data
     ]
     rotational_average = einops.rearrange(mean_per_shell, "shells ... -> ... shells")
-    if return_2d_average is True:
-        if len(dft.shape) > len(image_shape):
-            image_shape = (*dft.shape[:-2], *image_shape[-2:])
-        rotational_average = _1d_to_rotational_average_2d_dft(
+
+    # Broadcast the rotational average to the same shape as the input
+    if return_same_shape:
+        if _is_batched:
+            image_shape = (*dft.shape[: -len(image_shape)], *image_shape)
+        rotational_average = _1d_to_rotational_average_nd_dft(
             values=rotational_average,
-            image_shape=image_shape,
+            wanted_shape=image_shape,
             rfft=rfft,
             fftshifted=fftshifted,
+            is_batched=_is_batched,
         )
-        frequency_bins = _1d_to_rotational_average_2d_dft(
+        frequency_bins = _1d_to_rotational_average_nd_dft(
             values=frequency_bins,
-            image_shape=image_shape,
+            wanted_shape=image_shape,
             rfft=rfft,
             fftshifted=fftshifted,
+            is_batched=_is_batched,
         )
+
     return rotational_average, frequency_bins
 
 
-def rotational_average_dft_3d(
+def _split_into_frequency_bins(
     dft: torch.Tensor,
+    n_bins: int,
     image_shape: tuple[int, ...],
     rfft: bool = False,
     fftshifted: bool = False,
-    return_3d_average: bool = False,
-) -> tuple[torch.Tensor, torch.Tensor]:  # rotational_average, frequency_bins
-    """
-    Calculate the rotational average of a 3D DFT.
+) -> list[torch.Tensor]:
+    """Splits a DFT into frequency bins.
 
     Parameters
     ----------
     dft : torch.Tensor
-        Complex tensor containing 3D Fourier transform(s). Can be batched with shape
-        (batch, d, h, w) or unbatched (d, h, w).
+        Complex tensor containing a 2D or 3D Fourier transform.
+    n_bins : int
+        Number of frequency bins to split the DFT into.
     image_shape : tuple[int, ...]
-        Shape of the input image
+        Shape of the input image / volume without a batch dimension (if any).
     rfft : bool
-        Whether the input is from an rfft (True) or full fft (False)
+        Whether the input is from an rfft (True) or full fft (False).
     fftshifted : bool
-        Whether the input is fftshifted
-    return_3d_average : bool
-        Whether to return the 3D rotational average and frequency bins
+        Whether the input is fftshifted.
+
+    Returns
+    -------
+    list[torch.Tensor]
+        List of tensors containing the DFT values in each frequency bin.
+    """
+    _is_batched = len(dft.shape) > len(image_shape)  # TODO: check only +1 dims
+
+    frequency_grid = fftfreq_grid(
+        image_shape=image_shape,
+        rfft=rfft,
+        fftshift=fftshifted,
+        norm=True,
+        device=dft.device,
+    )
+    frequency_grid = frequency_grid.flatten()
+    shell_borders = _frequency_bin_split_values(n_bins)
+    shell_indices = _find_shell_indices_1d(frequency_grid, split_values=shell_borders)
+
+    # Flatten the DFT (except along the first dimension if batched)
+    # start_dim = 1 if _is_batched else 0
+    # dft = dft.flatten(start_dim=start_dim)
+
+    if dft.ndim == 2:
+        dft = einops.rearrange(dft, "... h w -> ... (h w)")
+    elif dft.ndim == 3:
+        dft = einops.rearrange(dft, "... d h w -> ... (d h w)")
+
+    shells = [dft[..., shell_idx] for shell_idx in shell_indices]
+
+    return shells[:-1]
+
+
+def _1d_to_rotational_average_nd_dft(
+    values: torch.Tensor,
+    wanted_shape: tuple[int, ...],
+    rfft: bool = False,
+    fftshifted: bool = False,
+    is_batched: bool = False,
+) -> torch.Tensor:
+    """Map a set of 1-dimensional values onto an n-dimensional grid.
+
+    Function assumes that the Fourier grid dimensions of the 1D values and
+    the n-dimensional grid are the same (e.g. same sampling rate). Non-equal
+    Fourier representations may be added in the future. The function also
+    supports batched values of shape (batch, ...) if is_batched is True.
+
+    Parameters
+    ----------
+    values : torch.Tensor
+        1D tensor of values to map onto the grid
+    wanted_shape : tuple[int, ...]
+        Shape of the grid to map the values onto
+    rfft : bool
+        Weather the grid should be an rfft grid
+    fftshifted : bool
+        Weather the grid should be fftshifted
+    is_batched : bool
+        True if the first dimension represents a batched dimension
 
     Returns
     -------
     torch.Tensor
-        Rotational average of the input DFT
+        The values mapped onto the grid
     """
-    # calculate the number of frequency bins
-    d, h, w = image_shape[-3:]
-    n_bins = min((i // 2) + 1 for i in (h, w))
+    shape = wanted_shape[1:] if is_batched else wanted_shape
+    shape = rfft_shape(shape) if rfft else shape
 
-    # split data into frequency bins
-    frequency_bins = _frequency_bin_centers(n_bins, device=dft.device)
-    shell_data = _split_into_frequency_bins_3d(
-        dft, n_bins=n_bins, image_shape=(d, h, w), rfft=rfft, fftshifted=fftshifted
+    _is_2d = len(shape) == 2
+    _is_3d = len(shape) == 3
+
+    # Construct the grid
+    average_nd = torch.zeros(size=shape, dtype=values.dtype, device=values.device)
+
+    # Construct the grid of frequencies
+    grid = fftfreq_grid(
+        image_shape=shape,
+        rfft=rfft,
+        fftshift=fftshifted,
+        norm=True,
+        device=values.device,
+    )
+    split_values = _frequency_bin_split_values(
+        n=values.shape[-1],
+        device=values.device,  # Why values.shape[-1]?
     )
 
-    # calculate mean over each shell
-    mean_per_shell = [
-        einops.reduce(shell, "... shell -> ...", reduction="mean")
-        for shell in shell_data
-    ]
-    rotational_average = einops.rearrange(mean_per_shell, "shells ... -> ... shells")
-    if return_3d_average is True:
-        if len(dft.shape) > len(image_shape):
-            image_shape = (*dft.shape[:-3], *image_shape[-3:])
-        rotational_average = _1d_to_rotational_average_3d_dft(
-            values=rotational_average,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshifted,
-        )
-        frequency_bins = _1d_to_rotational_average_3d_dft(
-            values=frequency_bins,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshifted,
-        )
-    return rotational_average, frequency_bins
+    # Find the indices of the grid values in each shell
+    shell_idx = _find_shell_indices(values=grid, split_values=split_values)
+    shell_idx = shell_idx[:-1]
+
+    # Iterate over each shell and insert the values
+    for idx, shell in enumerate(shell_idx):
+        idx_hwd = einops.rearrange(shell, "b idx -> idx b")
+        average_nd[..., *(idx_hwd)] = values[..., [idx]]
+
+    # fill outside the nyquist circle with the value from the nyquist bin
+    average_nd[..., grid > 0.5] = values[..., [-1]]
+
+    return average_nd
+
+
+def _find_shell_indices(
+    values: torch.Tensor, split_values: torch.Tensor
+) -> list[torch.Tensor]:
+    """
+    Find n-dim indices which index to give values either side of split values.
+
+    TODO: Describe further what this function returns (e.g. elements in each
+    list are indices of values in each shell).
+    """
+    idx_nd = coordinate_grid(values.shape).long()
+    idx_nd = idx_nd.flatten(end_dim=-2)  # Flatten except for last dim
+    values = values.flatten()  # Flatten
+
+    sorted_vals, sort_idx = torch.sort(values, descending=False)
+    split_idx = torch.searchsorted(sorted_vals, split_values)
+
+    # tensor_split requires the split_idx to live on cpu (why?)
+    return list(torch.tensor_split(idx_nd[sort_idx], split_idx.to("cpu")))
 
 
 def _find_shell_indices_1d(
@@ -158,259 +262,9 @@ def _find_shell_indices_1d(
     return list(torch.tensor_split(sort_idx, split_idx.to("cpu")))
 
 
-def _find_shell_indices_2d(
-    values: torch.Tensor, split_values: torch.Tensor
-) -> list[torch.Tensor]:
-    """
-    Find 2D indices which index to give values either side of split values.
-
-    Parameters
-    ----------
-    values : torch.Tensor
-        The values to split
-    split_values : torch.Tensor
-        The values to split at
-
-    Returns
-    -------
-    list[torch.Tensor]
-        List of tensors containing the indices of values in each shell
-    """
-    idx_2d = coordinate_grid(values.shape[-2:]).long()
-    values = einops.rearrange(values, "h w -> (h w)")
-    idx_2d = einops.rearrange(idx_2d, "h w idx -> (h w) idx")
-    sorted_vals, sort_idx = torch.sort(values, descending=False)
-    split_idx = torch.searchsorted(sorted_vals, split_values)
-    # tensor_split requires the split_idx to live on cpu
-    return list(torch.tensor_split(idx_2d[sort_idx], split_idx.to("cpu")))
-
-
-def _find_shell_indices_3d(
-    values: torch.Tensor, split_values: torch.Tensor
-) -> list[torch.Tensor]:
-    """
-    Find 3D indices which index to give values either side of split values.
-
-    Parameters
-    ----------
-    values : torch.Tensor
-        The values to split
-    split_values : torch.Tensor
-        The values to split at
-
-    Returns
-    -------
-    list[torch.Tensor]
-        List of tensors containing the indices of values in each shell
-    """
-    idx_3d = coordinate_grid(values.shape[-3:]).long()
-    values = einops.rearrange(values, "d h w -> (d h w)")
-    idx_3d = einops.rearrange(idx_3d, "d h w idx -> (d h w) idx")
-    sorted_vals, sort_idx = torch.sort(values, descending=False)
-    split_idx = torch.searchsorted(sorted_vals, split_values)
-    # tensor_split requires the split_idx to live on cpu
-    return list(torch.tensor_split(idx_3d[sort_idx], split_idx.to("cpu")))
-
-
-def _split_into_frequency_bins_2d(
-    dft: torch.Tensor,
-    n_bins: int,
-    image_shape: tuple[int, int],
-    rfft: bool = False,
-    fftshifted: bool = False,
-) -> list[torch.Tensor]:
-    """
-    Split a 2D DFT into frequency bins.
-
-    Parameters
-    ----------
-    dft : torch.Tensor
-        Complex tensor containing 2D Fourier transform(s). Can be batched with shape
-        (batch, h, w) or unbatched (h, w).
-    n_bins : int
-        Number of frequency bins to split the DFT into
-    image_shape : tuple[int, int]
-        Shape of the input image
-    rfft : bool
-        Whether the input is from an rfft (True) or full fft (False)
-    fftshifted : bool
-        Whether the input is fftshifted
-
-    Returns
-    -------
-    list[torch.Tensor]
-        List of tensors containing the DFT values in each frequency bin
-    """
-    frequency_grid = fftfreq_grid(
-        image_shape=image_shape,
-        rfft=rfft,
-        fftshift=fftshifted,
-        norm=True,
-        device=dft.device,
-    )
-    frequency_grid = einops.rearrange(frequency_grid, "h w -> (h w)")
-    shell_borders = _frequency_bin_split_values(n_bins)
-    shell_indices = _find_shell_indices_1d(frequency_grid, split_values=shell_borders)
-    dft = einops.rearrange(dft, "... h w -> ... (h w)")
-    shells = [dft[..., shell_idx] for shell_idx in shell_indices]
-    return shells[:-1]
-
-
-def _split_into_frequency_bins_3d(
-    dft: torch.Tensor,
-    n_bins: int,
-    image_shape: tuple[int, int, int],
-    rfft: bool = False,
-    fftshifted: bool = False,
-) -> list[torch.Tensor]:
-    """
-    Split a 3D DFT into frequency bins.
-
-    Parameters
-    ----------
-    dft : torch.Tensor
-        Complex tensor containing 3D Fourier transform(s). Can be batched with shape
-        (batch, d, h, w) or unbatched (d, h, w).
-    n_bins : int
-        Number of frequency bins to split the DFT into
-    image_shape : tuple[int, int, int]
-        Shape of the input image
-    rfft : bool
-        Whether the input is from an rfft (True) or full fft (False)
-    fftshifted : bool
-        Whether the input is fftshifted
-
-    Returns
-    -------
-    list[torch.Tensor]
-        List of tensors containing the DFT values in each frequency bin
-    """
-    frequency_grid = fftfreq_grid(
-        image_shape=image_shape,
-        rfft=rfft,
-        fftshift=fftshifted,
-        norm=True,
-        device=dft.device,
-    )
-    frequency_grid = einops.rearrange(frequency_grid, "d h w -> (d h w)")
-    shell_borders = _frequency_bin_split_values(n_bins)
-    shell_indices = _find_shell_indices_1d(frequency_grid, split_values=shell_borders)
-    dft = einops.rearrange(dft, "... d h w -> ... (d h w)")
-    shells = [dft[..., shell_idx] for shell_idx in shell_indices]
-    return shells[:-1]
-
-
-def _1d_to_rotational_average_2d_dft(
-    values: torch.Tensor,
-    image_shape: tuple[int, ...],
-    rfft: bool = False,
-    fftshifted: bool = True,
-) -> torch.Tensor:
-    """
-    Convert a 1D array of values to a 2D array of values in frequency bins.
-
-    Parameters
-    ----------
-    values : torch.Tensor
-        1D tensor of values to convert
-    image_shape : tuple[int, ...]
-        Shape of the input image
-    rfft : bool
-        Whether the input is from an rfft (True) or full fft (False)
-    fftshifted : bool
-        Whether the input is fftshifted
-
-    Returns
-    -------
-    torch.Tensor
-        2D tensor of values in frequency bins
-    """
-    # construct output tensor
-    h, w = image_shape[-2:]
-    h, w = rfft_shape((h, w)) if rfft is True else (h, w)
-    result_shape = (*image_shape[:-2], h, w)
-    average_2d = torch.zeros(
-        size=result_shape, dtype=values.dtype, device=values.device
-    )
-
-    # construct 2d grid of frequencies and find 2d indices for elements in each bin
-    grid = fftfreq_grid(
-        image_shape=image_shape[-2:],
-        rfft=rfft,
-        fftshift=fftshifted,
-        norm=True,
-        device=values.device,
-    )
-    split_values = _frequency_bin_split_values(n=values.shape[-1], device=values.device)
-    shell_idx = _find_shell_indices_2d(values=grid, split_values=split_values)[:-1]
-
-    # insert data into each shell
-    for idx, shell in enumerate(shell_idx):
-        idx_h, idx_w = einops.rearrange(shell, "b idx -> idx b")
-        average_2d[..., idx_h, idx_w] = values[..., [idx]]
-
-    # fill outside the nyquist circle with the value from the nyquist bin
-    average_2d[..., grid > 0.5] = values[..., [-1]]
-    return average_2d
-
-
-def _1d_to_rotational_average_3d_dft(
-    values: torch.Tensor,
-    image_shape: tuple[int, ...],
-    rfft: bool = False,
-    fftshifted: bool = True,
-) -> torch.Tensor:
-    """
-    Convert a 1D array of values to a 3D array of values in frequency bins.
-
-    Parameters
-    ----------
-    values : torch.Tensor
-        1D tensor of values to convert
-    image_shape : tuple[int, ...]
-        Shape of the input image
-    rfft : bool
-        Whether the input is from an rfft (True) or full fft (False)
-    fftshifted : bool
-        Whether the input is fftshifted
-
-    Returns
-    -------
-    torch.Tensor
-        3D tensor of values in frequency bins
-    """
-    # construct output tensor
-    d, h, w = image_shape[-3:]
-    d, h, w = rfft_shape((d, h, w)) if rfft is True else (d, h, w)
-    result_shape = (*image_shape[:-3], d, h, w)
-    average_3d = torch.zeros(
-        size=result_shape, dtype=values.dtype, device=values.device
-    )
-
-    # construct 3d grid of frequencies and find 3d indices for elements in each bin
-    grid = fftfreq_grid(
-        image_shape=image_shape[-3:],
-        rfft=rfft,
-        fftshift=fftshifted,
-        norm=True,
-        device=values.device,
-    )
-    split_values = _frequency_bin_split_values(n=values.shape[-1], device=values.device)
-    shell_idx = _find_shell_indices_3d(values=grid, split_values=split_values)[:-1]
-
-    # insert data into each shell
-    for idx, shell in enumerate(shell_idx):
-        idx_d, idx_h, idx_w = einops.rearrange(shell, "b idx -> idx b")
-        average_3d[..., idx_d, idx_h, idx_w] = values[..., [idx]]
-
-    # fill outside the nyquist circle with the value from the nyquist bin
-    average_3d[..., grid > 0.5] = values[..., [-1]]
-    return average_3d
-
-
 def _frequency_bin_centers(n: int, device: torch.device | None = None) -> torch.Tensor:
     """
-    Centers of DFT sample frequency bins.
+    Centers of DFT sample frequency bins in units of inverse pixels.
 
     Parameters
     ----------

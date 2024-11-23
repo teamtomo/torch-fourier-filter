@@ -1,0 +1,3 @@
+[default.extend-words]
+# "nd" for "n-dimensional", not misspelling of "and"
+nd = "nd"
