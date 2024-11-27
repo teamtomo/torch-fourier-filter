@@ -125,8 +125,9 @@ def calculate_ctf_2d(
         image_shape=image_shape,
         rfft=rfft,
         fftshift=fftshift,
-        norm=True,
+        norm=False,
     )
+
     fft_freq_grid = fft_freq_grid / einops.rearrange(pixel_size, "b -> b 1 1 1")
     fftfreq_grid_squared = fft_freq_grid**2
 
@@ -148,7 +149,7 @@ def calculate_ctf_2d(
     s2 = s**2
 
     yy2, xx2 = einops.rearrange(fftfreq_grid_squared, "b h w freq -> freq b h w")
-    xy = einops.reduce(fftfreq_grid, "b h w freq -> b h w", reduction="prod")
+    xy = einops.reduce(fft_freq_grid, "b h w freq -> b h w", reduction="prod")
     n4 = (
         einops.reduce(fftfreq_grid_squared, "b h w freq -> b h w", reduction="sum") ** 2
     )

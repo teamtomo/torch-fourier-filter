@@ -16,3 +16,9 @@ And for development and testing use
 ```zsh
 pip install -e ".[dev,test]"
 ```
+
+Make sure to run tests before any commits:
+```zsh
+python -m pytest
+```
+

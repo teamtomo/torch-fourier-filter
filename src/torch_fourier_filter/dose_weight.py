@@ -81,7 +81,6 @@ def cumulative_dose_filter_3d(
         The dose weighting filter.
     """
     end_exposure = start_exposure + num_frames * flux
-    print(f"End exposure: {end_exposure}")
     # Get the frequency grid for 1 frame
     fft_freq_px = (
         fftfreq_grid(
@@ -103,7 +102,6 @@ def cumulative_dose_filter_3d(
     # Add small epsilon to prevent division by zero
     eps = 1e-10
     Ne = Ne.clamp(min=eps)
-    print(f"Ne min: {Ne.min()}, max: {Ne.max()}")
 
     return (
         2
