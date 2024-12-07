@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 import einops
 import torch
+import torch.nn.functional as F
 from torch_grid_utils.coordinate_grid import coordinate_grid
 from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
@@ -472,3 +473,50 @@ def rfft_shape(
     rfft_shape = list(input_shape)
     rfft_shape[-1] = int((rfft_shape[-1] / 2) + 1)
     return tuple(rfft_shape)
+
+
+def bin_or_interpolate_to_output_size(
+    values: torch.Tensor,
+    output_shape: tuple[int, ...],
+) -> torch.Tensor:
+    """
+    Interpolate 1D frequency values to match the desired output size.
+
+    Parameters
+    ----------
+    values: torch.Tensor
+        1D tensor containing frequency values
+    output_shape: tuple[int, ...]
+        Desired output shape. The longest dimension will be used as target size.
+
+    Returns
+    -------
+    torch.Tensor
+        Interpolated values matching the target size
+    """
+    # Get target size (use the longest dimension from output_shape)
+    target_size = max(output_shape)
+
+    # If input is batched, handle accordingly
+    if values.dim() > 1:
+        orig_shape = values.shape
+        values = values.view(-1, values.shape[-1])
+
+        # Interpolate each batch
+        result = F.interpolate(
+            values.unsqueeze(1),  # Add channel dim for interpolate
+            size=target_size,
+            mode="linear",
+            align_corners=True,
+        ).squeeze(1)  # Remove channel dim
+
+        # Restore batch dimensions
+        return result.view(*orig_shape[:-1], target_size)
+    else:
+        # Interpolate
+        return F.interpolate(
+            values.view(1, 1, -1),  # Add batch and channel dims
+            size=target_size,
+            mode="linear",
+            align_corners=True,
+        ).view(target_size)  # Remove batch and channel dims

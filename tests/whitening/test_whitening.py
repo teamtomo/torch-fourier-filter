@@ -83,6 +83,27 @@ def test_whitening_filter():
     ).all(), "Test case 4 failed: Non-finite values in result"
     assert result.max() == 1.0, "Test case 4 failed: Result not normalized"
 
+    # Test case 5: Different input/output size
+    image_shape = (100, 16, 16)
+    output_shape = (8, 8)
+    image = torch.rand(image_shape, dtype=torch.float32)
+    image_dft = torch.fft.fftn(image, dim=(-2, -1))
+
+    result = whitening_filter(
+        image_dft,
+        image_shape=image_shape[-2:],
+        output_shape=output_shape,
+        rfft=False,
+        fftshift=False,
+        dimensions_output=2,
+        smoothing=False,
+    )
+    assert result.shape[-2:] == output_shape, "Test case 5 failed: Shape mismatch"
+    assert torch.isfinite(
+        result
+    ).all(), "Test case 5 failed: Non-finite values in result"
+    assert result.max() == 1.0, "Test case 5 failed: Result not normalized"
+
 
 def test_gaussian_smoothing():
     # Create a test tensor

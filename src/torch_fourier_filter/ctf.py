@@ -42,7 +42,7 @@ def calculate_ctf_2d(
     astigmatism: float | torch.Tensor,
     astigmatism_angle: float | torch.Tensor,
     voltage: float,
-    spherical_aberration: float,
+    spherical_aberration: float | torch.Tensor,
     amplitude_contrast: float,
     b_factor: float | torch.Tensor,
     phase_shift: float | torch.Tensor,

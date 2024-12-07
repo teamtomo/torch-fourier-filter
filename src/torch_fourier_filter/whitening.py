@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch_fourier_filter.dft_utils import (
     _1d_to_rotational_average_2d_dft,
     _1d_to_rotational_average_3d_dft,
+    bin_or_interpolate_to_output_size,
     rotational_average_dft_2d,
     rotational_average_dft_3d,
 )
@@ -127,6 +128,9 @@ def whitening_filter(
     # Apply Gaussian smoothing
     if smoothing:
         whiten_filter = gaussian_smoothing(whiten_filter)
+
+    # bin or interpolate to output size
+    whiten_filter = bin_or_interpolate_to_output_size(whiten_filter, output_shape)
 
     # put back to 2 or 3D if necessary
     if dimensions_output == 2:
