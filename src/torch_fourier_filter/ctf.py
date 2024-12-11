@@ -3,7 +3,7 @@
 import einops
 import torch
 from scipy import constants as C
-from torch_grid_utils.fftfreq_grid import fftfreq_grid
+from torch_grid_utils.fftfreq_grid import fftfreq_grid, fftshift_2d
 
 
 def calculate_relativistic_electron_wavelength(energy: float) -> float:
@@ -166,7 +166,7 @@ def calculate_ctf_2d(
     if k4 > 0:
         ctf *= torch.exp(k4 * n4)
     if fftshift is True:
-        ctf = torch.fft.fftshift(ctf, dim=(-2, -1))
+        ctf = fftshift_2d(ctf, rfft=rfft)
     return ctf
 
 

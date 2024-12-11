@@ -11,11 +11,6 @@ def test_make_mtf_grid():
     image_shape_3d = (32, 64, 64)
     mtf_frequencies = torch.linspace(0, 0.5, 10)
     mtf_amplitudes = torch.linspace(1, 0, 10)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Move tensors to the appropriate device
-    mtf_frequencies = mtf_frequencies.to(device)
-    mtf_amplitudes = mtf_amplitudes.to(device)
 
     mtf_grid_2d = make_mtf_grid(
         image_shape_2d, mtf_frequencies, mtf_amplitudes, rfft=True, fftshift=False

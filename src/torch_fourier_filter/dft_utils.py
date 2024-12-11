@@ -14,7 +14,7 @@ def rotational_average_dft_2d(
     image_shape: tuple[int, ...],
     rfft: bool = False,
     fftshifted: bool = False,
-    return_2d_average: bool = False,
+    return_1d_average: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:  # rotational_average, frequency_bins
     """
     Calculate the rotational average of a 2D DFT.
@@ -30,8 +30,9 @@ def rotational_average_dft_2d(
         Whether the input is from an rfft (True) or full fft (False)
     fftshifted : bool
         Whether the input is fftshifted
-    return_2d_average : bool
-        Whether to return the 2D rotational average and frequency bins
+    return_1d_average : bool
+        If true, return a 1D rotational average and frequency bins, otherwise
+        return a 2D average.
 
     Returns
     -------
@@ -54,7 +55,7 @@ def rotational_average_dft_2d(
         for shell in shell_data
     ]
     rotational_average = einops.rearrange(mean_per_shell, "shells ... -> ... shells")
-    if return_2d_average is True:
+    if not return_1d_average:
         if len(dft.shape) > len(image_shape):
             image_shape = (*dft.shape[:-2], *image_shape[-2:])
         rotational_average = _1d_to_rotational_average_2d_dft(
@@ -77,7 +78,7 @@ def rotational_average_dft_3d(
     image_shape: tuple[int, ...],
     rfft: bool = False,
     fftshifted: bool = False,
-    return_3d_average: bool = False,
+    return_1d_average: bool = True,
 ) -> tuple[torch.Tensor, torch.Tensor]:  # rotational_average, frequency_bins
     """
     Calculate the rotational average of a 3D DFT.
@@ -93,8 +94,9 @@ def rotational_average_dft_3d(
         Whether the input is from an rfft (True) or full fft (False)
     fftshifted : bool
         Whether the input is fftshifted
-    return_3d_average : bool
-        Whether to return the 3D rotational average and frequency bins
+    return_1d_average : bool
+        If true, return a 1D rotational average and frequency bins, otherwise
+        return a 3D average.
 
     Returns
     -------
@@ -117,7 +119,7 @@ def rotational_average_dft_3d(
         for shell in shell_data
     ]
     rotational_average = einops.rearrange(mean_per_shell, "shells ... -> ... shells")
-    if return_3d_average is True:
+    if not return_1d_average:
         if len(dft.shape) > len(image_shape):
             image_shape = (*dft.shape[:-3], *image_shape[-3:])
         rotational_average = _1d_to_rotational_average_3d_dft(

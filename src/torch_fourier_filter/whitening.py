@@ -33,6 +33,8 @@ def gaussian_smoothing(
     torch.Tensor
         The smoothed tensor.
     """
+    assert tensor.dim() in [1, 2], "Input tensor must be 1D or 2D"
+
     # Create a 1D Gaussian kernel
     x = torch.arange(
         -kernel_size // 2 + 1,
@@ -100,44 +102,44 @@ def whitening_filter(
         Whitening filter
     """
     power_spectrum = torch.abs(image_dft)
+
     if power_spec:
         power_spectrum = power_spectrum**2
-    radial_average = None
-    if len(image_shape) == 2:
-        radial_average, _ = rotational_average_dft_2d(
-            dft=power_spectrum,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
-            return_2d_average=False,  # output 1D average
-        )
-    elif len(image_shape) == 3:
-        radial_average, _ = rotational_average_dft_3d(
-            dft=power_spectrum,
-            image_shape=image_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
-            return_3d_average=False,  # output 1D average
-        )
 
-    # Take the reciprical of the square root of the radial average
-    whiten_filter = 1 / (radial_average)
+    if len(image_shape) == 2:
+        rot_avg_mth = rotational_average_dft_2d
+    elif len(image_shape) == 3:
+        rot_avg_mth = rotational_average_dft_3d
+
+    # Get 1-dimensional radial average
+    power_spectrum_1d, _ = rot_avg_mth(
+        dft=power_spectrum,
+        image_shape=image_shape,
+        rfft=rfft,
+        fftshifted=fftshift,
+        return_1d_average=True,
+    )
+
+    whitening_filter_1d = 1 / power_spectrum_1d
+
     if power_spec:
-        whiten_filter = whiten_filter**0.5
+        whitening_filter_1d = whitening_filter_1d**0.5
 
     # Apply Gaussian smoothing
     if smoothing:
-        whiten_filter = gaussian_smoothing(whiten_filter)
+        whitening_filter_1d = gaussian_smoothing(whitening_filter_1d)
 
     # bin or interpolate to output size
-    whiten_filter = bin_or_interpolate_to_output_size(whiten_filter, output_shape)
+    whitening_filter_1d = bin_or_interpolate_to_output_size(
+        whitening_filter_1d, output_shape
+    )
 
     # put back to 2 or 3D if necessary
     if dimensions_output == 2:
         if len(power_spectrum.shape) > len(output_shape):
             output_shape = (*power_spectrum.shape[:-2], *output_shape[-2:])
         whiten_filter = _1d_to_rotational_average_2d_dft(
-            values=radial_average,
+            values=whitening_filter_1d,
             image_shape=output_shape,
             rfft=rfft,
             fftshifted=fftshift,
@@ -146,7 +148,7 @@ def whitening_filter(
         if len(power_spectrum.shape) > len(output_shape):
             output_shape = (*power_spectrum.shape[:-3], *output_shape[-3:])
         whiten_filter = _1d_to_rotational_average_3d_dft(
-            values=radial_average,
+            values=whitening_filter_1d,
             image_shape=output_shape,
             rfft=rfft,
             fftshifted=fftshift,
