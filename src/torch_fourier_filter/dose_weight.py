@@ -24,30 +24,29 @@ def critical_exposure(fft_freq: torch.Tensor) -> torch.Tensor:
     return Ne
 
 
-def critical_exposure_Bfac(fft_freq: torch.Tensor, Bfac: float) -> torch.Tensor:
+def critical_exposure_bfactor(fft_freq: torch.Tensor, bfactor: float) -> torch.Tensor:
     """
     Calculate the critical exposure using a user defined B-factor.
 
     Args:
         fft_freq: The frequency grid of the Fourier transform.
-        Bfac: The B-factor to use.
+        bfactor: The B-factor to use.
 
     Returns
     -------
         The critical exposure for the given frequency grid
     """
     eps = 1e-10
-    Ne = 2 / (Bfac * fft_freq.clamp(min=eps) ** 2)
+    Ne = 2 / (bfactor * fft_freq.clamp(min=eps) ** 2)
     return Ne
 
 
 def cumulative_dose_filter_3d(
     volume_shape: tuple[int, int, int],
-    num_frames: int,
-    start_exposure: float = 0.0,
     pixel_size: float = 1,
-    flux: float = 1,
-    Bfac: float = -1,
+    start_exposure: float = 0.0,
+    end_exposure: float = 30.0,
+    crit_exposure_bfactor: int | float = -1,
     rfft: bool = True,
     fftshift: bool = False,
 ) -> torch.Tensor:
@@ -59,17 +58,17 @@ def cumulative_dose_filter_3d(
     Parameters
     ----------
     volume_shape : tuple[int, int, int]
-        The volume shape for dose weighting.
-    num_frames : int
-        The number of frames for dose weighting.
-    start_exposure : float
-        The start exposure for dose weighting.
+        The shape of the filter to calculate (real space). Rfft is
+        automatically calculated from this.
     pixel_size : float
-        The pixel size of the volume.
-    flux : float
-        The fluence per frame.
-    Bfac : float
-        The B factor for dose weighting, -1=use Grant and Grigorieff values.
+        The pixel size of the volume, in Angstrom.
+    start_exposure : float
+        The start exposure for dose weighting, in e-/A^2. Default is 0.0.
+    end_exposure : float
+        The end exposure for dose weighting, in e-/A^2. Default is 30.0.
+    crit_exposure_bfactor : int | float
+        The B factor for dose weighting based on critical exposure. If '-1',
+        then use Grant and Grigorieff (2015) values.
     rfft : bool
         If the FFT is a real FFT.
     fftshift : bool
@@ -80,24 +79,24 @@ def cumulative_dose_filter_3d(
     torch.Tensor
         The dose weighting filter.
     """
-    end_exposure = start_exposure + num_frames * flux
     # Get the frequency grid for 1 frame
-    fft_freq_px = (
-        fftfreq_grid(
-            image_shape=volume_shape,
-            rfft=rfft,
-            fftshift=fftshift,
-            norm=True,
-        )
-        / pixel_size
+    fft_freq_px = fftfreq_grid(
+        image_shape=volume_shape,
+        rfft=rfft,
+        fftshift=fftshift,
+        norm=True,
     )
+    fft_freq_px /= pixel_size  # Convert to Angstrom^-1
 
     # Get the critical exposure for each frequency
-    Ne = (
-        critical_exposure_Bfac(fft_freq=fft_freq_px, Bfac=Bfac)
-        if Bfac >= 0
-        else critical_exposure(fft_freq=fft_freq_px)
-    )
+    if crit_exposure_bfactor == -1:
+        Ne = critical_exposure(fft_freq=fft_freq_px)
+    elif crit_exposure_bfactor >= 0:
+        Ne = critical_exposure_bfactor(
+            fft_freq=fft_freq_px, bfactor=crit_exposure_bfactor
+        )
+    else:
+        raise ValueError("B-factor must be positive or -1.")
 
     # Add small epsilon to prevent division by zero
     eps = 1e-10
