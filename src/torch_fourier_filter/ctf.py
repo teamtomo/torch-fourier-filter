@@ -90,6 +90,7 @@ def calculate_ctf_2d(
         The Contrast Transfer Function for the given parameters.
     """
     # to torch.Tensor and unit conversions
+    cs_tensor = False
     defocus = torch.atleast_1d(torch.as_tensor(defocus, dtype=torch.float))
     defocus *= 1e4  # micrometers -> angstroms
     astigmatism = torch.atleast_1d(torch.as_tensor(astigmatism, dtype=torch.float))
@@ -105,6 +106,8 @@ def calculate_ctf_2d(
         torch.as_tensor(spherical_aberration, dtype=torch.float)
     )
     spherical_aberration *= 1e7  # mm -> angstroms
+    if spherical_aberration.shape[0] > 1:
+        cs_tensor = True
     image_shape = torch.as_tensor(image_shape)
 
     # derived quantities used in CTF calculation
@@ -155,11 +158,17 @@ def calculate_ctf_2d(
     )
 
     Axx = c2 * defocus_u + s2 * defocus_v
-    Axx_x2 = einops.rearrange(Axx, "... -> ... 1 1") * xx2
     Axy = c * s * (defocus_u - defocus_v)
-    Axy_xy = einops.rearrange(Axy, "... -> ... 1 1") * xy
     Ayy = s2 * defocus_u + c2 * defocus_v
-    Ayy_y2 = einops.rearrange(Ayy, "... -> ... 1 1") * yy2
+    if cs_tensor:
+        Axx_x2 = einops.rearrange(Axx, "... -> ... 1 1 1") * xx2
+        Axy_xy = einops.rearrange(Axy, "... -> ... 1 1 1") * xy
+        Ayy_y2 = einops.rearrange(Ayy, "... -> ... 1 1 1") * yy2
+        k2 = einops.rearrange(k2, "... -> 1 1 ... 1 1")
+    else:
+        Ayy_y2 = einops.rearrange(Ayy, "... -> ... 1 1") * yy2
+        Axx_x2 = einops.rearrange(Axx, "... -> ... 1 1") * xx2
+        Axy_xy = einops.rearrange(Axy, "... -> ... 1 1") * xy
 
     # calculate ctf
     ctf = -torch.sin(k1 * (Axx_x2 + (2 * Axy_xy) + Ayy_y2) + k2 * n4 - k3 - k5)
