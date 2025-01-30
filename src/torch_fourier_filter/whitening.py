@@ -6,38 +6,79 @@ import torch.nn.functional as F
 from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
 
+def expand_1d_to_ndim_spectrum(
+    spectrum_1d: torch.Tensor,
+    freq_grid: torch.Tensor,
+    unique_freqs: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Expand a 1D spectrum back to N-D based on frequency grid values.
+
+    Parameters
+    ----------
+    spectrum_1d: torch.Tensor
+        1D spectrum values, shape (num_freqs,) or (batch, num_freqs)
+    freq_grid: torch.Tensor
+        nD grid of frequency values to map on to, shape (*spatial_dims)
+    unique_freqs: torch.Tensor
+        Unique frequency values, shape (num_freqs,)
+
+    Returns
+    -------
+    torch.Tensor
+        N-D spectrum with same shape as freq_grid (or batch, *freq_grid.shape)
+    """
+    # Create an output tensor with the same batch dimensions and shape as freq_grid
+    spectrum_ndim = torch.zeros(
+        (*spectrum_1d.shape[:-1], *freq_grid.shape), device=spectrum_1d.device
+    )
+
+    # Iterate over unique frequencies and apply them to the corresponding positions
+    for i, freq in enumerate(unique_freqs):
+        mask = freq_grid == freq
+        spectrum_ndim[..., mask] = spectrum_1d[..., i].unsqueeze(-1)
+
+    return spectrum_ndim
+
+
 def gaussian_smoothing(
     tensor: torch.Tensor,
-    spatial_dims: int = 1,
+    dim: int | tuple[int, ...] = -1,
     kernel_size: int = 5,
     sigma: float = 1.0,
 ) -> torch.Tensor:
     """
-    Apply Gaussian smoothing to a 1D or 2D tensor or batch.
+    Apply Gaussian smoothing over specified dimensions of a tensor.
 
     Parameters
     ----------
     tensor: torch.Tensor
-        The input tensor to be smoothed. Can be:
-        - 1D: (N,)
-        - 2D: (H, W)
-        - Batched 1D: (B, N)
-        - Batched 2D: (B, H, W)
+        The input tensor to be smoothed.
+    dim: int | tuple[int, ...]
+        Dimensions over which to apply smoothing. Can be a single int or tuple of ints.
+        Negative dimensions are indexed from the end.
     kernel_size: int
         The size of the Gaussian kernel.
     sigma: float
         The standard deviation of the Gaussian kernel.
-    spatial_dims: int
-        Number of spatial dimensions (1 or 2)
 
     Returns
     -------
     torch.Tensor
         The smoothed tensor with same shape as input.
     """
-    assert spatial_dims in [1, 2], "spatial_dims must be 1 or 2"
-    dim_input_tensor = tensor.dim()
-    is_batched = dim_input_tensor > spatial_dims
+    # Convert single dim to tuple
+    if isinstance(dim, int):
+        dim = (dim,)
+
+    # Convert negative dims to positive
+    dim = tuple(d if d >= 0 else tensor.dim() + d for d in dim)
+
+    # Validate dimensions
+    if not all(0 <= d < tensor.dim() for d in dim):
+        raise ValueError(f"Invalid dimensions {dim} for tensor of rank {tensor.dim()}")
+    if len(dim) > 2:
+        raise ValueError("Gaussian smoothing only supports 1D or 2D operations")
 
     # Create coordinate grid for kernel
     x = torch.arange(
@@ -47,46 +88,38 @@ def gaussian_smoothing(
         device=tensor.device,
     )
 
-    if spatial_dims == 1:
+    if len(dim) == 1:  # 1D smoothing
         kernel = torch.exp(-0.5 * (x / sigma) ** 2)
         kernel = kernel / kernel.sum()
-        kernel = einops.rearrange(kernel, "k -> 1 1 k")
 
-        # Reshape input
-        if is_batched:
-            tensor = einops.rearrange(tensor, "b n -> b 1 n")
-        else:
-            tensor = einops.rearrange(tensor, "n -> 1 1 n")
+        # Create conv kernel with singleton dimensions
+        shape = [1] * (tensor.dim())
+        shape[dim[0]] = kernel_size
+        kernel = kernel.view(*shape)
 
-        # Apply smoothing
-        smoothed = F.conv1d(tensor, kernel, padding=kernel_size // 2)
+        # Apply 1D convolution
+        tensor = einops.rearrange(tensor, "... n -> ... 1 1 n")
+        kernel = einops.rearrange(kernel, "... n -> ... 1 1 n")
+        smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2)
+        return einops.rearrange(smoothed_tensor, "... 1 1 n -> ... n")
 
-        # Reshape output
-        if is_batched:
-            return einops.rearrange(smoothed, "b 1 n -> b n")
-        else:
-            return einops.rearrange(smoothed, "1 1 n -> n")
-
-    else:  # 2D case
+    else:  # 2D smoothing
         x, y = torch.meshgrid(x, x, indexing="ij")
         kernel = torch.exp(-0.5 * ((x / sigma) ** 2 + (y / sigma) ** 2))
         kernel = kernel / kernel.sum()
-        kernel = einops.rearrange(kernel, "h w -> 1 1 h w")
 
-        # Reshape input
-        if is_batched:
-            tensor = einops.rearrange(tensor, "b h w -> b 1 h w")
-        else:
-            tensor = einops.rearrange(tensor, "h w -> 1 1 h w")
-
-        # Apply smoothing
-        smoothed = F.conv2d(tensor, kernel, padding=kernel_size // 2)
-
-        # Reshape output
-        if is_batched:
-            return einops.rearrange(smoothed, "b 1 h w -> b h w")
-        else:
-            return einops.rearrange(smoothed, "1 1 h w -> h w")
+        # Create conv kernel with singleton dimensions
+        shape = [1] * (tensor.dim())
+        shape[dim[0]] = kernel_size
+        shape[dim[1]] = kernel_size
+        kernel = kernel.view(*shape)
+        kernel = einops.rearrange(kernel, "... h w -> ... 1 1 h w")
+        # Apply 2D convolution
+        tensor = einops.rearrange(tensor, "... h w -> ... 1 1 h w")
+        smoothed_tensor = F.conv2d(
+            tensor, kernel, padding=kernel_size // 2, stride=(1, 1)
+        )
+        return einops.rearrange(smoothed_tensor, "... 1 1 h w -> ... h w")
 
 
 def whitening_filter(
@@ -95,7 +128,7 @@ def whitening_filter(
     output_shape: tuple[int, int] | tuple[int, int, int],
     rfft: bool = True,
     fftshift: bool = False,
-    dimensions_output: int = 2,  # 1/2/3D filter
+    dim: int | tuple[int, ...] = (-2, -1),  # output dimensions
     smoothing: bool = False,
     power_spec: bool = True,
 ) -> torch.Tensor:
@@ -114,8 +147,8 @@ def whitening_filter(
         Whether the input is from an rfft (True) or full fft (False)
     fftshift: bool
         Whether the input is fftshifted
-    dimensions_output: int
-        The number of dimensions of the output filter (1/2/3)
+    dim: int | tuple[int, ...]
+        Output dimension axes (excluding batch dimension if present)
     smoothing: bool
         Whether to apply Gaussian smoothing to the filter
     power_spec: bool
@@ -126,6 +159,19 @@ def whitening_filter(
     torch.Tensor
         Whitening filter
     """
+    ###Move batch dimension to front if not already there###
+
+    # Convert single dim to tuple
+    if isinstance(dim, int):
+        dim = (dim,)
+    # Convert negative dims to positive
+    dim = tuple(d if d >= 0 else image_dft.ndim + d for d in dim)
+
+    # Move all non-spatial (batch) dimensions to the front
+    batch_dims = [i for i in range(image_dft.ndim) if i not in dim]
+    if batch_dims != list(range(len(batch_dims))):
+        image_dft = image_dft.permute(*batch_dims, *dim)
+
     power_spectrum = torch.abs(image_dft)
 
     if power_spec:
@@ -140,20 +186,15 @@ def whitening_filter(
         output_shape_fft = output_shape
 
     # Add batch dimension if necessary
-    if len(power_spectrum.shape) > len(output_shape):  # batched case
-        batch_size = power_spectrum.shape[0]
-        resized_shape = (batch_size, *output_shape_fft)
-    else:
-        resized_shape = output_shape_fft
 
     # Interpolate or bin the power spectrum
     if (
         power_spectrum.shape[-(len(output_shape)) :]
-        != resized_shape[-(len(output_shape)) :]
+        != output_shape_fft[-(len(output_shape)) :]
     ):
         power_spectrum = F.interpolate(
             power_spectrum.unsqueeze(1),  # add channel dim
-            size=resized_shape[-(len(output_shape)) :],  # spatial dims only
+            size=output_shape_fft[-(len(output_shape)) :],  # spatial dims only
             mode="bilinear" if len(output_shape) == 2 else "trilinear",
             align_corners=False,
         ).squeeze(1)  # remove channel dim
@@ -167,20 +208,26 @@ def whitening_filter(
         device=power_spectrum.device,
     )
 
-    # Bin frequencies and average power spectrum values
+    # Bin frequencies and average power spectrum values to 1D
     unique_freqs = torch.unique(freq_grid)
-    if len(power_spectrum.shape) > len(output_shape):  # batched case
-        binned_spectrum = torch.zeros_like(power_spectrum)
-        for b in range(power_spectrum.shape[0]):
-            for freq in unique_freqs:
-                mask = freq_grid == freq
-                binned_spectrum[b][mask] = power_spectrum[b][mask].mean()
-    else:
-        binned_spectrum = torch.zeros_like(power_spectrum)
-        for freq in unique_freqs:
-            mask = freq_grid == freq
-            binned_spectrum[mask] = power_spectrum[mask].mean()
-    power_spectrum = binned_spectrum
+    binned_spectrum_1d = torch.zeros(
+        (*power_spectrum.shape[: len(batch_dims)], len(unique_freqs)),
+        device=power_spectrum.device,
+    )
+    # Precompute the dimensions to sum over
+    sum_dims = tuple(range(-len(dim), 0))
+
+    # Vectorized binning
+    for i, freq in enumerate(unique_freqs):
+        mask = freq_grid == freq
+        masked_power = power_spectrum * mask
+        binned_spectrum_1d[..., i] = masked_power.sum(dim=sum_dims) / mask.sum(
+            dim=sum_dims
+        )
+
+    power_spectrum = expand_1d_to_ndim_spectrum(
+        binned_spectrum_1d, freq_grid, unique_freqs
+    )
 
     whitening_filter = 1 / power_spectrum
 
@@ -191,13 +238,12 @@ def whitening_filter(
     if smoothing:
         whitening_filter = gaussian_smoothing(
             tensor=whitening_filter,
-            spatial_dims=dimensions_output,
+            dim=dim,
         )
 
     # Normalize the filter
-    if len(whitening_filter.shape) > dimensions_output:  # then batched
-        whitening_filter_max = einops.reduce(whitening_filter, "b ... -> b", "max")
-        whitening_filter_max = einops.rearrange(whitening_filter_max, "b -> b 1 1")
+    if len(whitening_filter.shape) > len(output_shape):  # then batched
+        whitening_filter_max = whitening_filter.amax(dim=dim, keepdim=True)
         whitening_filter /= whitening_filter_max
     else:
         whitening_filter /= whitening_filter.max()

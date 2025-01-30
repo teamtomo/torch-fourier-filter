@@ -15,7 +15,7 @@ def test_whitening_filter():
         image_shape,
         rfft=False,
         fftshift=False,
-        dimensions_output=2,
+        dim=(-2, -1),
         smoothing=False,
     )
     assert torch.isfinite(
@@ -34,7 +34,7 @@ def test_whitening_filter():
         image_shape,
         rfft=False,
         fftshift=False,
-        dimensions_output=3,
+        dim=(-3, -2, -1),
         smoothing=False,
     )
     assert result.shape == image_shape, "Test case 2 failed: Shape mismatch"
@@ -54,7 +54,7 @@ def test_whitening_filter():
         image_shape,
         rfft=False,
         fftshift=False,
-        dimensions_output=2,
+        dim=(-2, -1),
         smoothing=True,
     )
     assert result.shape == image_shape, "Test case 3 failed: Shape mismatch"
@@ -74,7 +74,7 @@ def test_whitening_filter():
         output_shape=image_shape[-2:],
         rfft=False,
         fftshift=False,
-        dimensions_output=2,
+        dim=(-2, -1),
         smoothing=False,
     )
     assert result.shape == image_shape, "Test case 4 failed: Shape mismatch"
@@ -95,7 +95,7 @@ def test_whitening_filter():
         output_shape=output_shape,
         rfft=False,
         fftshift=False,
-        dimensions_output=2,
+        dim=(-2, -1),
         smoothing=False,
     )
     assert result.shape[-2:] == output_shape, "Test case 5 failed: Shape mismatch"
@@ -113,7 +113,7 @@ def test_gaussian_smoothing():
     # Apply Gaussian smoothing
     smoothed_tensor = gaussian_smoothing(
         tensor=tensor,
-        spatial_dims=1,
+        dim=0,
         kernel_size=5,
         sigma=1.0,
     )
