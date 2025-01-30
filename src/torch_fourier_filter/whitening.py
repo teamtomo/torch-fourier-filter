@@ -3,6 +3,7 @@
 import einops
 import torch
 import torch.nn.functional as F
+from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
 
 def gaussian_smoothing(
@@ -156,6 +157,30 @@ def whitening_filter(
             mode="bilinear" if len(output_shape) == 2 else "trilinear",
             align_corners=False,
         ).squeeze(1)  # remove channel dim
+
+    # Get FFT freqs
+    freq_grid = fftfreq_grid(
+        image_shape=output_shape,
+        rfft=rfft,
+        fftshift=fftshift,
+        norm=True,
+        device=power_spectrum.device,
+    )
+
+    # Bin frequencies and average power spectrum values
+    unique_freqs = torch.unique(freq_grid)
+    if len(power_spectrum.shape) > len(output_shape):  # batched case
+        binned_spectrum = torch.zeros_like(power_spectrum)
+        for b in range(power_spectrum.shape[0]):
+            for freq in unique_freqs:
+                mask = freq_grid == freq
+                binned_spectrum[b][mask] = power_spectrum[b][mask].mean()
+    else:
+        binned_spectrum = torch.zeros_like(power_spectrum)
+        for freq in unique_freqs:
+            mask = freq_grid == freq
+            binned_spectrum[mask] = power_spectrum[mask].mean()
+    power_spectrum = binned_spectrum
 
     whitening_filter = 1 / power_spectrum
 
