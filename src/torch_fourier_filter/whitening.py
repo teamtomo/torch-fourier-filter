@@ -4,64 +4,88 @@ import einops
 import torch
 import torch.nn.functional as F
 
-from torch_fourier_filter.dft_utils import (
-    _1d_to_rotational_average_2d_dft,
-    _1d_to_rotational_average_3d_dft,
-    bin_or_interpolate_to_output_size,
-    rotational_average_dft_2d,
-    rotational_average_dft_3d,
-)
-
 
 def gaussian_smoothing(
-    tensor: torch.Tensor, kernel_size: int = 5, sigma: float = 1.0
+    tensor: torch.Tensor,
+    spatial_dims: int = 1,
+    kernel_size: int = 5,
+    sigma: float = 1.0,
 ) -> torch.Tensor:
     """
-    Apply Gaussian smoothing to a 1D tensor or batch.
+    Apply Gaussian smoothing to a 1D or 2D tensor or batch.
 
     Parameters
     ----------
     tensor: torch.Tensor
-        The input tensor to be smoothed.
+        The input tensor to be smoothed. Can be:
+        - 1D: (N,)
+        - 2D: (H, W)
+        - Batched 1D: (B, N)
+        - Batched 2D: (B, H, W)
     kernel_size: int
         The size of the Gaussian kernel.
     sigma: float
         The standard deviation of the Gaussian kernel.
+    spatial_dims: int
+        Number of spatial dimensions (1 or 2)
 
     Returns
     -------
     torch.Tensor
-        The smoothed tensor.
+        The smoothed tensor with same shape as input.
     """
-    assert tensor.dim() in [1, 2], "Input tensor must be 1D or 2D"
+    assert spatial_dims in [1, 2], "spatial_dims must be 1 or 2"
+    dim_input_tensor = tensor.dim()
+    is_batched = dim_input_tensor > spatial_dims
 
-    # Create a 1D Gaussian kernel
+    # Create coordinate grid for kernel
     x = torch.arange(
         -kernel_size // 2 + 1,
         kernel_size // 2 + 1,
         dtype=tensor.dtype,
         device=tensor.device,
     )
-    kernel = torch.exp(-0.5 * (x / sigma) ** 2)
-    kernel = kernel / kernel.sum()
 
-    # Reshape kernel for convolution
-    kernel = einops.rearrange(kernel, "k -> 1 1 k")
+    if spatial_dims == 1:
+        kernel = torch.exp(-0.5 * (x / sigma) ** 2)
+        kernel = kernel / kernel.sum()
+        kernel = einops.rearrange(kernel, "k -> 1 1 k")
 
-    # Add batch and channel dimensions if necessary
-    dim_input_tensor = tensor.dim()
-    if dim_input_tensor == 1:
-        tensor = einops.rearrange(tensor, "n -> 1 1 n")
-    else:
-        tensor = einops.rearrange(tensor, "b n -> b 1 n")
+        # Reshape input
+        if is_batched:
+            tensor = einops.rearrange(tensor, "b n -> b 1 n")
+        else:
+            tensor = einops.rearrange(tensor, "n -> 1 1 n")
 
-    # Apply the Gaussian kernel to the tensor
-    smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2)
+        # Apply smoothing
+        smoothed = F.conv1d(tensor, kernel, padding=kernel_size // 2)
 
-    if dim_input_tensor == 2:
-        return einops.rearrange(smoothed_tensor, "b 1 n -> b n")
-    else:
-        return einops.rearrange(smoothed_tensor, "1 1 n -> n")
+        # Reshape output
+        if is_batched:
+            return einops.rearrange(smoothed, "b 1 n -> b n")
+        else:
+            return einops.rearrange(smoothed, "1 1 n -> n")
+
+    else:  # 2D case
+        x, y = torch.meshgrid(x, x, indexing="ij")
+        kernel = torch.exp(-0.5 * ((x / sigma) ** 2 + (y / sigma) ** 2))
+        kernel = kernel / kernel.sum()
+        kernel = einops.rearrange(kernel, "h w -> 1 1 h w")
+
+        # Reshape input
+        if is_batched:
+            tensor = einops.rearrange(tensor, "b h w -> b 1 h w")
+        else:
+            tensor = einops.rearrange(tensor, "h w -> 1 1 h w")
+
+        # Apply smoothing
+        smoothed = F.conv2d(tensor, kernel, padding=kernel_size // 2)
+
+        # Reshape output
+        if is_batched:
+            return einops.rearrange(smoothed, "b 1 h w -> b h w")
+        else:
+            return einops.rearrange(smoothed, "1 1 h w -> h w")
 
 
 def whitening_filter(
@@ -84,7 +108,7 @@ def whitening_filter(
     image_shape: tuple[int, ...]
         Shape of the input image
     output_shape: tuple[int, ...]
-        Shape of the output filter
+        Shape of the output filter (in real space)
     rfft: bool
         Whether the input is from an rfft (True) or full fft (False)
     fftshift: bool
@@ -106,60 +130,51 @@ def whitening_filter(
     if power_spec:
         power_spectrum = power_spectrum**2
 
-    if len(image_shape) == 2:
-        rot_avg_mth = rotational_average_dft_2d
-    elif len(image_shape) == 3:
-        rot_avg_mth = rotational_average_dft_3d
+    # output shape is for the image
+    # Handle rfft case for output shape
+    if rfft:
+        last_dim = output_shape[-1] // 2 + 1
+        output_shape_fft = (*output_shape[:-1], last_dim)
+    else:
+        output_shape_fft = output_shape
 
-    # Get 1-dimensional radial average
-    power_spectrum_1d, _ = rot_avg_mth(
-        dft=power_spectrum,
-        image_shape=image_shape,
-        rfft=rfft,
-        fftshifted=fftshift,
-        return_1d_average=True,
-    )
+    # Add batch dimension if necessary
+    if len(power_spectrum.shape) > len(output_shape):  # batched case
+        batch_size = power_spectrum.shape[0]
+        resized_shape = (batch_size, *output_shape_fft)
+    else:
+        resized_shape = output_shape_fft
 
-    whitening_filter_1d = 1 / power_spectrum_1d
+    # Interpolate or bin the power spectrum
+    if (
+        power_spectrum.shape[-(len(output_shape)) :]
+        != resized_shape[-(len(output_shape)) :]
+    ):
+        power_spectrum = F.interpolate(
+            power_spectrum.unsqueeze(1),  # add channel dim
+            size=resized_shape[-(len(output_shape)) :],  # spatial dims only
+            mode="bilinear" if len(output_shape) == 2 else "trilinear",
+            align_corners=False,
+        ).squeeze(1)  # remove channel dim
+
+    whitening_filter = 1 / power_spectrum
 
     if power_spec:
-        whitening_filter_1d = whitening_filter_1d**0.5
+        whitening_filter = whitening_filter**0.5
 
     # Apply Gaussian smoothing
     if smoothing:
-        whitening_filter_1d = gaussian_smoothing(whitening_filter_1d)
-
-    # bin or interpolate to output size
-    whitening_filter_1d = bin_or_interpolate_to_output_size(
-        whitening_filter_1d, output_shape
-    )
-
-    # put back to 2 or 3D if necessary
-    if dimensions_output == 2:
-        if len(power_spectrum.shape) > len(output_shape):
-            output_shape = (*power_spectrum.shape[:-2], *output_shape[-2:])
-        whiten_filter = _1d_to_rotational_average_2d_dft(
-            values=whitening_filter_1d,
-            image_shape=output_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
-        )
-    elif dimensions_output == 3:
-        if len(power_spectrum.shape) > len(output_shape):
-            output_shape = (*power_spectrum.shape[:-3], *output_shape[-3:])
-        whiten_filter = _1d_to_rotational_average_3d_dft(
-            values=whitening_filter_1d,
-            image_shape=output_shape,
-            rfft=rfft,
-            fftshifted=fftshift,
+        whitening_filter = gaussian_smoothing(
+            tensor=whitening_filter,
+            spatial_dims=dimensions_output,
         )
 
     # Normalize the filter
-    if len(whiten_filter.shape) > dimensions_output:  # then batched
-        whiten_max = einops.reduce(whiten_filter, "b ... -> b", "max")
-        whiten_max = einops.rearrange(whiten_max, "b -> b 1 1")
-        whiten_filter /= whiten_max
+    if len(whitening_filter.shape) > dimensions_output:  # then batched
+        whitening_filter_max = einops.reduce(whitening_filter, "b ... -> b", "max")
+        whitening_filter_max = einops.rearrange(whitening_filter_max, "b -> b 1 1")
+        whitening_filter /= whitening_filter_max
     else:
-        whiten_filter /= whiten_filter.max()
+        whitening_filter /= whitening_filter.max()
 
-    return whiten_filter
+    return whitening_filter

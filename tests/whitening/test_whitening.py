@@ -111,7 +111,12 @@ def test_gaussian_smoothing():
     tensor[45:55] = 1.0  # Create a spike in the middle
 
     # Apply Gaussian smoothing
-    smoothed_tensor = gaussian_smoothing(tensor, kernel_size=5, sigma=1.0)
+    smoothed_tensor = gaussian_smoothing(
+        tensor=tensor,
+        spatial_dims=1,
+        kernel_size=5,
+        sigma=1.0,
+    )
 
     # Check that the smoothed tensor is different from the original around the spike
     assert not torch.equal(
