@@ -25,9 +25,9 @@ def torch_interp(
         The x-coordinates of the data points.
     fp : torch.Tensor
         The y-coordinates of the data points, must be same length as xp.
-    left : float, optional
+    left : float | complex, optional
         Value to return for x < xp[0], default is fp[0].
-    right : float, optional
+    right : float | complex, optional
         Value to return for x > xp[-1], default is fp[-1].
     period : float, optional
         Not implemented!
@@ -140,3 +140,81 @@ def curve_1dim_to_ndim(
         ).reshape(frequency_grid.shape)
 
     return interpn_values
+
+
+def bin_1dim_with_lerp(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    xp: torch.Tensor,
+    normalize_by_count: bool = True,
+) -> torch.Tensor:
+    """Bins values (y) at coordinates (x) onto 1D grid (xp) with linear interpolation.
+
+    NOTE: that multi-dimensional inputs (x, y) are supported, but batch dimensions
+    are currently absent. All dimensions of the input will be flattened before binning.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        Coordinates of input values.
+    y : torch.Tensor
+        Values to bin.
+    xp : torch.Tensor
+        Coordinates of the 1D grid to bin onto. Note that xp *must* be a strictly
+        increasing sequence *and* part of this function assumes that it has a linear
+        spacing.
+    normalize_by_count : bool, optional
+        If True, the output values will be normalized by the number of partial values
+        that fall in each bin. Default is True. If False, then the raw histogram-like
+        values will be returned.
+
+    Returns
+    -------
+    torch.Tensor
+        Binned values on the 1D grid (histogram-like)
+    """
+    if x.shape != y.shape:
+        raise ValueError("x and y must have the same shape.")
+
+    if xp.ndim != 1:
+        raise ValueError("xp must be 1D.")
+
+    x = x.view(-1)
+    y = y.view(-1)
+
+    # Out of bounds masks to prevent indexing errors
+    oob_left = x < xp[0]
+    oob_right = x >= xp[-1] + xp[1] - xp[0]  # Assumes linear spacing
+    x = x[~(oob_left | oob_right)]
+    y = y[~(oob_left | oob_right)]
+
+    # Find the nearest indices for binning values
+    indices = torch.bucketize(input=x, boundaries=xp, right=False)
+
+    # Find which 1d grid values each bin corresponds to
+    left_bins = torch.clamp(indices - 1, 0, len(xp) - 1)
+    right_bins = torch.clamp(indices, 0, len(xp) - 1)
+    left_xp = xp[left_bins]
+    right_xp = xp[right_bins]
+
+    right_weights = (x - left_xp) / (right_xp - left_xp).clamp(min=1e-6)
+
+    # Create sum and count tensors
+    values_sum = torch.zeros_like(xp)
+    values_count = torch.zeros_like(xp)
+
+    # Accumulate values and counts
+    values_sum.index_add_(0, left_bins, y * (1 - right_weights))
+    values_sum.index_add_(0, right_bins, y * right_weights)
+
+    if not normalize_by_count:
+        return values_sum
+
+    # Count number of partial values in each bin
+    values_count.index_add_(0, left_bins, 1 - right_weights)
+    values_count.index_add_(0, right_bins, right_weights)
+
+    # Prevent division by zero
+    values_count[values_count == 0] = 1
+
+    return values_sum / values_count

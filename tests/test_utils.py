@@ -4,7 +4,11 @@ import numpy as np
 import pytest
 import torch
 
-from torch_fourier_filter.utils import curve_1dim_to_ndim, torch_interp
+from torch_fourier_filter.utils import (
+    bin_1dim_with_lerp,
+    curve_1dim_to_ndim,
+    torch_interp,
+)
 
 
 def test_torch_interp():
@@ -88,3 +92,49 @@ def test_curve_1dim_to_ndim():
     # Test 4. ValueError for different shapes
     with pytest.raises(ValueError):
         curve_1dim_to_ndim(values_batched, frequencies[:-1], frequency_grid)
+
+
+def test_bin_1dim_with_lerp():
+    # Test case 1: Basic functionality
+    x = torch.tensor([0.5, 1.5, 2.5])
+    y = torch.tensor([1.0, 2.0, 3.0])
+    xp = torch.tensor([0.0, 1.0, 2.0, 3.0])
+    expected_output = torch.tensor([0.5, 1.5, 2.5, 1.5])
+    output = bin_1dim_with_lerp(x, y, xp, normalize_by_count=False)
+    assert torch.allclose(
+        output, expected_output
+    ), f"Expected {expected_output}, but got {output}"
+
+    # Test case 1b: Basic functionality with normalization
+    x = torch.tensor([0.5, 1.5, 2.5])
+    y = torch.tensor([1.0, 2.0, 3.0])
+    xp = torch.tensor([0.0, 1.0, 2.0, 3.0])
+    expected_output = torch.tensor([1.0, 1.5, 2.5, 3.0])
+    output = bin_1dim_with_lerp(x, y, xp, normalize_by_count=True)
+    assert torch.allclose(
+        output, expected_output
+    ), f"Expected {expected_output}, but got {output}"
+
+    # Test case 2: x and y have different shapes
+    x = torch.tensor([0.5, 1.5])
+    y = torch.tensor([1.0, 2.0, 3.0])
+    xp = torch.tensor([0.0, 1.0, 2.0, 3.0])
+    with pytest.raises(ValueError, match="x and y must have the same shape."):
+        bin_1dim_with_lerp(x, y, xp)
+
+    # Test case 3: xp is not 1D
+    x = torch.tensor([0.5, 1.5, 2.5])
+    y = torch.tensor([1.0, 2.0, 3.0])
+    xp = torch.tensor([[0.0, 1.0], [2.0, 3.0]])
+    with pytest.raises(ValueError, match="xp must be 1D."):
+        bin_1dim_with_lerp(x, y, xp)
+
+    # Test case 4: Out of bounds values
+    x = torch.tensor([-10, 0.0, 1.0, 10])
+    y = torch.tensor([-1.0, 3.0, 9.0, -1.0])
+    xp = torch.tensor([0.0, 1.0, 2.0, 3.0])
+    expected_output = torch.tensor([3.0, 9.0, 0.0, 0.0])
+    output = bin_1dim_with_lerp(x, y, xp)
+    assert torch.allclose(
+        output, expected_output
+    ), f"Expected {expected_output}, but got {output}"
