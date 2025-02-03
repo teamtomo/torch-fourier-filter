@@ -61,7 +61,7 @@ def torch_interp(
 
     # Out of bounds masks
     oob_left = x < xp[0]
-    oob_right = x > xp[-1]
+    oob_right = x >= xp[-1]
 
     # index-in-bounds (iib) and x-in-bounds (xib)
     iib = i[(~oob_left) & (~oob_right)]
