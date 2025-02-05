@@ -1,119 +1,64 @@
-# def test_whitening_filter():
-#     # Test case 1: Basic functionality with 2D input
-#     image_shape = (8, 8)
-#     image = torch.rand(image_shape, dtype=torch.float32)
-#     image_dft = torch.fft.fft2(image)
+import torch
 
-#     result = whitening_filter(
-#         image_dft,
-#         image_shape,
-#         image_shape,
-#         rfft=False,
-#         fftshift=False,
-#         dim=(-2, -1),
-#         smoothing=False,
-#     )
-#     assert torch.isfinite(
-#         result
-#     ).all(), "Test case 1 failed: Non-finite values in result"
-#     assert result.max() == 1.0, "Test case 1 failed: Result not normalized"
-
-#     # Test case 2: Basic functionality with 3D input
-#     image_shape = (16, 16, 16)
-#     image = torch.rand(image_shape, dtype=torch.float32)
-#     image_dft = torch.fft.fftn(image, dim=(-3, -2, -1))
-
-#     result = whitening_filter(
-#         image_dft,
-#         image_shape,
-#         image_shape,
-#         rfft=False,
-#         fftshift=False,
-#         dim=(-3, -2, -1),
-#         smoothing=False,
-#     )
-#     assert result.shape == image_shape, "Test case 2 failed: Shape mismatch"
-#     assert torch.isfinite(
-#         result
-#     ).all(), "Test case 2 failed: Non-finite values in result"
-#     assert result.max() == 1.0, "Test case 2 failed: Result not normalized"
-
-#     # Test case 3: With smoothing
-#     image_shape = (32, 32)
-#     image = torch.rand(image_shape, dtype=torch.float32)
-#     image_dft = torch.fft.fft2(image)
-
-#     result = whitening_filter(
-#         image_dft,
-#         image_shape,
-#         image_shape,
-#         rfft=False,
-#         fftshift=False,
-#         dim=(-2, -1),
-#         smoothing=True,
-#     )
-#     assert result.shape == image_shape, "Test case 3 failed: Shape mismatch"
-#     assert torch.isfinite(
-#         result
-#     ).all(), "Test case 3 failed: Non-finite values in result"
-#     assert result.max() == 1.0, "Test case 3 failed: Result not normalized"
-
-#     # Test case 4: Basic functionality with batched 2D input
-#     image_shape = (100, 16, 16)
-#     image = torch.rand(image_shape, dtype=torch.float32)
-#     image_dft = torch.fft.fftn(image, dim=(-2, -1))
-
-#     result = whitening_filter(
-#         image_dft,
-#         image_shape=image_shape[-2:],
-#         output_shape=image_shape[-2:],
-#         rfft=False,
-#         fftshift=False,
-#         dim=(-2, -1),
-#         smoothing=False,
-#     )
-#     assert result.shape == image_shape, "Test case 4 failed: Shape mismatch"
-#     assert torch.isfinite(
-#         result
-#     ).all(), "Test case 4 failed: Non-finite values in result"
-#     assert result.max() == 1.0, "Test case 4 failed: Result not normalized"
-
-#     # Test case 5: Different input/output size
-#     image_shape = (100, 16, 16)
-#     output_shape = (8, 8)
-#     image = torch.rand(image_shape, dtype=torch.float32)
-#     image_dft = torch.fft.fftn(image, dim=(-2, -1))
-
-#     result = whitening_filter(
-#         image_dft,
-#         image_shape=image_shape[-2:],
-#         output_shape=output_shape,
-#         rfft=False,
-#         fftshift=False,
-#         dim=(-2, -1),
-#         smoothing=False,
-#     )
-#     assert result.shape[-2:] == output_shape, "Test case 5 failed: Shape mismatch"
-#     assert torch.isfinite(
-#         result
-#     ).all(), "Test case 5 failed: Non-finite values in result"
-#     assert result.max() == 1.0, "Test case 5 failed: Result not normalized"
+from torch_fourier_filter.whitening import (
+    power_spectral_density,
+    real_space_shape_from_dft_shape,
+    whitening_filter,
+)
 
 
-# def test_gaussian_smoothing():
-#     # Create a test tensor
-#     tensor = torch.zeros(100)
-#     tensor[45:55] = 1.0  # Create a spike in the middle
+def test_real_space_shape_from_dft_shape():
+    """Basic tests for real_space_shape_from_dft_shape."""
+    # Test 2D shape
+    dft_shape = (64, 64)
+    real_space_shape = real_space_shape_from_dft_shape(dft_shape, rfft=False)
+    assert real_space_shape == (64, 64), "Real space shape incorrect for 2D input"
 
-#     # Apply Gaussian smoothing
-#     smoothed_tensor = gaussian_smoothing(
-#         tensor=tensor,
-#         dim=0,
-#         kernel_size=5,
-#         sigma=1.0,
-#     )
+    # Test 2D shape with rfft
+    dft_shape = (64, 33)
+    real_space_shape = real_space_shape_from_dft_shape(dft_shape, rfft=True)
+    assert real_space_shape == (
+        64,
+        64,
+    ), "Real space shape incorrect for 2D input with rfft"
 
-#     # Check that the smoothed tensor is different from the original around the spike
-#     assert not torch.equal(
-#         tensor[44:56], smoothed_tensor[44:56]
-#     ), "Smoothing not applied "
+    # Test 3D shape
+    dft_shape = (32, 64, 64)
+    real_space_shape = real_space_shape_from_dft_shape(dft_shape, rfft=False)
+    assert real_space_shape == (32, 64, 64), "Real space shape incorrect for 3D input"
+
+    # Test 3D shape with rfft
+    dft_shape = (32, 64, 33)
+    real_space_shape = real_space_shape_from_dft_shape(dft_shape, rfft=True)
+    assert real_space_shape == (
+        32,
+        64,
+        64,
+    ), "Real space shape incorrect for 3D input with rfft"
+
+
+def test_power_spectral_density():
+    """Basic tests for outputs of power_spectral_density."""
+    img = torch.rand((64, 64))
+    img_dft = torch.fft.rfftn(img)
+
+    psd_1d = power_spectral_density(img_dft, rfft=True, fftshift=False)
+
+    assert isinstance(psd_1d, torch.Tensor), "Output should be a tensor"
+    assert psd_1d.ndim == 1, "Output should be 1D"
+
+
+def test_whitening_filter():
+    """Basic tests for outputs of whitening_filter."""
+    img = torch.rand((64, 64))
+    img_dft = torch.fft.rfftn(img)
+
+    # Test for same output shape, etc.
+    wf = whitening_filter(img_dft, rfft=True, fftshift=False)
+    assert isinstance(wf, torch.Tensor), "Output should be a tensor"
+    assert wf.shape == img_dft.shape, "Output shape should be the same as input"
+
+    # Test for different output shape
+    wf = whitening_filter(img_dft, rfft=True, fftshift=False, output_shape=(32, 32))
+    assert isinstance(wf, torch.Tensor), "Output should be a tensor"
+    assert wf.shape == (32, 32), "Output shape should be the same as input"
