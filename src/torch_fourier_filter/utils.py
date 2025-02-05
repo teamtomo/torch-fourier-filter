@@ -125,8 +125,10 @@ def curve_1dim_to_ndim(
     if values_1d.ndim > 2:
         raise ValueError("values_1d must be at most 2D tensor.")
 
+    _is_batched = True
     if values_1d.ndim == 1:
         values_1d = values_1d.unsqueeze(0)
+        _is_batched = False
 
     interpn_values = torch.empty(values_1d.shape[0], *frequency_grid.shape)
 
@@ -138,6 +140,10 @@ def curve_1dim_to_ndim(
             left=fill_lower,
             right=fill_upper,
         ).reshape(frequency_grid.shape)
+
+    # Squeeze batch dimension if input was not batched
+    if not _is_batched:
+        interpn_values = interpn_values.squeeze(0)
 
     return interpn_values
 
