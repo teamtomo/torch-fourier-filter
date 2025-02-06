@@ -5,7 +5,11 @@ from typing import Optional
 import torch
 from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
-from torch_fourier_filter.utils import bin_1dim_with_lerp, curve_1dim_to_ndim
+from torch_fourier_filter.utils import (
+    _handle_dim,
+    bin_1dim_with_lerp,
+    curve_1dim_to_ndim,
+)
 
 
 def calculate_num_freq_bins(image_shape: tuple[int, ...]) -> int:
@@ -61,7 +65,7 @@ def power_spectral_density(
     max_freq: Optional[float] = None,
     do_power_spectrum: Optional[bool] = True,
 ) -> torch.Tensor:
-    """Calculates the power spectral density of an image.
+    """Calculates the power spectral density of an image in 1-dimension.
 
     Note that the power spectrum can either be calculated over the intensities or
     amplitudes of the Fourier components; the parameter `do_power_spectrum` controls
@@ -103,23 +107,16 @@ def power_spectral_density(
         Currently *does not* support batching. Raises error if the input image is larger
         than the number of dimensions.
     """
-    if isinstance(dim, int):
-        dim = (dim,)
-    if image_dft.ndim > len(dim):
-        raise ValueError("Batched power spectral density not supported yet.")
-
-    # convert dims to positive and tuple
-    if isinstance(dim, int):
-        dim = (dim,)
-    dim = tuple(d if d >= 0 else image_dft.ndim + d for d in dim)
+    dim = _handle_dim(dim, image_dft.ndim)
+    shape_over_dim = tuple(image_dft.shape[d] for d in dim)
 
     real_space_shape = real_space_shape_from_dft_shape(
-        dft_shape=image_dft.shape, rfft=rfft
+        dft_shape=shape_over_dim, rfft=rfft
     )
 
     # Construct 1-dimensional grid of frequencies for binning
     if num_freq_bins is None:
-        num_freq_bins = calculate_num_freq_bins(image_dft.shape)
+        num_freq_bins = calculate_num_freq_bins(shape_over_dim)
     binning_freqs = torch.linspace(
         start=0.0,
         end=(len(dim) ** 0.5) / 2,  # corner of Fourier space
@@ -127,8 +124,8 @@ def power_spectral_density(
         device=image_dft.device,
     )
 
+    # Calculate the amplitude (or intensity) of all Fourier components
     power_spectrum = torch.abs(image_dft)
-
     if do_power_spectrum:
         power_spectrum = power_spectrum**2
 
@@ -216,10 +213,7 @@ def whitening_filter(
     torch.Tensor
         The whitening filter in Fourier space.
     """
-    # convert dims to positive and tuple
-    if isinstance(dim, int):
-        dim = (dim,)
-    dim = tuple(d if d >= 0 else image_dft.ndim + d for d in dim)
+    dim = _handle_dim(dim, image_dft.ndim)
 
     power_spec_1d = power_spectral_density(
         image_dft=image_dft,

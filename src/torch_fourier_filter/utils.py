@@ -5,6 +5,36 @@ from typing import Optional
 import torch
 
 
+def _handle_dim(dim: int | tuple[int, ...], ndim: int) -> tuple[int, ...]:
+    """Convert dim to positive and tuple.
+
+    Parameters
+    ----------
+    dim: int | tuple[int, ...]
+        Tuple or single int of dimensions. Negative dimensions are indexed from the end.
+    ndim: int
+        Number of dimensions in the input tensor.
+
+    Returns
+    -------
+    tuple[int, ...]
+        Positive tuple of dimensions.
+
+    Raises
+    ------
+    ValueError
+        If any dimension is out of bounds.
+    """
+    if isinstance(dim, int):
+        dim = (dim,)
+    dim = tuple(d if d >= 0 else ndim + d for d in dim)
+
+    if any(d < 0 or d >= ndim for d in dim):
+        raise ValueError(f"Invalid dimensions {dim} for tensor of rank {ndim}")
+
+    return dim
+
+
 def _interp1d(
     x: torch.Tensor,
     xp: torch.Tensor,
