@@ -200,7 +200,7 @@ def whitening_filter(
         calculated. The default is True.
     output_shape: tuple[int, ...], optional
         The shape of the output filter. If None, then the shape is the same as
-        `image_dft`. The default is None. NOTE: This shape is in Fourier space.
+        `image_dft`. The default is None. NOTE: This shape is in real space.
     output_rfft: bool, optional
         Whether to return the filter in rfft form. If None, then the same as `rfft`.
         The default is None.
@@ -254,7 +254,7 @@ def whitening_filter(
 
     # Construct FFT frequency grid
     if output_shape is None:
-        output_shape = image_dft.shape
+        output_shape = real_space_shape_from_dft_shape(image_dft.shape, rfft=rfft)
 
     if output_rfft is None:
         output_rfft = rfft
@@ -262,12 +262,12 @@ def whitening_filter(
     if output_fftshift is None:
         output_fftshift = fftshift
 
-    real_space_shape = real_space_shape_from_dft_shape(
-        dft_shape=output_shape, rfft=output_rfft
-    )
+    # real_space_shape = real_space_shape_from_dft_shape(
+    #     dft_shape=output_shape, rfft=output_rfft
+    # )
 
     freq_grid = fftfreq_grid(
-        image_shape=real_space_shape,
+        image_shape=output_shape,
         rfft=output_rfft,
         fftshift=output_fftshift,
         norm=True,

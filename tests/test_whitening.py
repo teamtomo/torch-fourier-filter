@@ -54,11 +54,16 @@ def test_whitening_filter():
     img_dft = torch.fft.rfftn(img)
 
     # Test for same output shape, etc.
-    wf = whitening_filter(img_dft, rfft=True, fftshift=False)
+    wf = whitening_filter(img_dft, rfft=False, fftshift=False)
     assert isinstance(wf, torch.Tensor), "Output should be a tensor"
     assert wf.shape == img_dft.shape, "Output shape should be the same as input"
 
     # Test for different output shape
-    wf = whitening_filter(img_dft, rfft=True, fftshift=False, output_shape=(32, 32))
+    wf = whitening_filter(img_dft, rfft=False, fftshift=False, output_shape=(32, 32))
     assert isinstance(wf, torch.Tensor), "Output should be a tensor"
     assert wf.shape == (32, 32), "Output shape should be the same as input"
+
+    # Test for different output shape
+    wf = whitening_filter(img_dft, rfft=True, fftshift=False, output_shape=(32, 32))
+    assert isinstance(wf, torch.Tensor), "Output should be a tensor"
+    assert wf.shape == (32, 17), "Output shape should be the same as input"
