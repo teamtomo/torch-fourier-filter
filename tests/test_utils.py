@@ -45,6 +45,32 @@ def test_torch_interp():
         torch_interp(x, xp, fp.unsqueeze(0))
 
 
+def test_torch_interp_batched():
+    """Basic test for interpolating across batched inputs."""
+    # Construct some random data
+    x = torch.rand(1000) * 12 - 2  # Grid is always constant
+    xp0 = torch.linspace(0, 8, 200)
+    xp1 = torch.linspace(0, 12, 200)
+    xp2 = torch.linspace(4, 12, 200)
+    fp0 = torch.sin(xp0)
+    fp1 = torch.cos(xp1) + 1
+    fp2 = torch.exp(xp2)
+
+    # stack into batched inputs
+    xp = torch.stack([xp0, xp1, xp2], dim=0)
+    fp = torch.stack([fp0, fp1, fp2], dim=0)
+
+    # Test 1. Interpolation with other default values
+    y_torch = torch_interp(x, xp, fp)
+    y0_numpy = np.interp(x.numpy(), xp0.numpy(), fp0.numpy())
+    y1_numpy = np.interp(x.numpy(), xp1.numpy(), fp1.numpy())
+    y2_numpy = np.interp(x.numpy(), xp2.numpy(), fp2.numpy())
+
+    assert np.allclose(y_torch[0].numpy(), y0_numpy, atol=1e-6)
+    assert np.allclose(y_torch[1].numpy(), y1_numpy, atol=1e-6)
+    assert np.allclose(y_torch[2].numpy(), y2_numpy, atol=1e-6)
+
+
 def test_curve_1dim_to_ndim():
     """Test converting a 1D curve at frequencies into a multi-dimensional grid."""
 

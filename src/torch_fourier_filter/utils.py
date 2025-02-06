@@ -5,17 +5,14 @@ from typing import Optional
 import torch
 
 
-def torch_interp(
+def _interp1d(
     x: torch.Tensor,
     xp: torch.Tensor,
     fp: torch.Tensor,
     left: Optional[float | complex] = None,
     right: Optional[float | complex] = None,
-    period: Optional[float] = None,
 ) -> torch.Tensor:
-    """Reimplementation of np.interp in PyTorch for 1d linear interpolation.
-
-    NOTE: Period function is not implemented.
+    """Helper func for unbatched 1D linear interpolation in torch matching np.interp.
 
     Parameters
     ----------
@@ -29,27 +26,12 @@ def torch_interp(
         Value to return for x < xp[0], default is fp[0].
     right : float | complex, optional
         Value to return for x > xp[-1], default is fp[-1].
-    period : float, optional
-        Not implemented!
 
     Returns
     -------
     torch.Tensor
         The interpolated values, same shape as x.
-
-    Raises
-    ------
-    NotImplementedError
-        If period is not None.
     """
-    if period is not None:
-        raise NotImplementedError("Periodic interpolation is not implemented.")
-
-    if xp.ndim != 1 or fp.ndim != 1:
-        raise ValueError("xp and fp must be both 1D tensors.")
-    if xp.shape != fp.shape:
-        raise ValueError("xp and fp must have the same shape.")
-
     # left and right fill values
     if left is None:
         left = fp[0]
@@ -79,6 +61,76 @@ def torch_interp(
     )
     out[oob_left] = left
     out[oob_right] = right
+
+    return out
+
+
+def torch_interp(
+    x: torch.Tensor,
+    xp: torch.Tensor,
+    fp: torch.Tensor,
+    left: Optional[float | complex] = None,
+    right: Optional[float | complex] = None,
+    period: Optional[float] = None,
+) -> torch.Tensor:
+    """Reimplementation of np.interp in PyTorch for 1d linear interpolation.
+
+    This function supports batching where the last dimensions of xp and fp are treated
+    as the 1-dimensional data points and all other dimensions are batch dimensions.
+    The x-coordinates to evaluate the interpolated values at (x) must still be
+    1-dimensional. NOTE: Batch evaluation of interpolation is currently implemented as
+    a naive for loop over dimensions. This may be updated in the future.
+
+    NOTE: Period portion of function is not implemented.
+
+    Parameters
+    ----------
+    x : torch.Tensor
+        The x-coordinates at which to evaluate the interpolated values.
+    xp : torch.Tensor
+        The x-coordinates of the data points.
+    fp : torch.Tensor
+        The y-coordinates of the data points, must be same length as xp.
+    left : float | complex, optional
+        Value to return for x < xp[0], default is fp[0].
+    right : float | complex, optional
+        Value to return for x > xp[-1], default is fp[-1].
+    period : float, optional
+        Not implemented!
+
+    Returns
+    -------
+    torch.Tensor
+        The interpolated values, same shape as x.
+
+    Raises
+    ------
+    NotImplementedError
+        If period is not None.
+    """
+    if period is not None:
+        raise NotImplementedError("Periodic interpolation is not implemented.")
+
+    if x.ndim != 1:
+        raise ValueError("Sample points (x) be 1D tensor.")
+    if xp.shape != fp.shape:
+        raise ValueError("Coordinates (xp) and values (fp) must have the same shape.")
+
+    _is_batched = True
+    if xp.ndim == 1:
+        _is_batched = False
+        xp = xp.unsqueeze(0)
+        fp = fp.unsqueeze(0)
+
+    # Naive for loop over batch dimensions
+    n_batch = torch.prod(torch.tensor(xp.shape[:-1])).item()
+    out = torch.zeros((n_batch, x.shape[0]), dtype=fp.dtype, device=fp.device)
+    for i, (_xp, _fp) in enumerate(zip(xp.view(n_batch, -1), fp.view(n_batch, -1))):
+        out[i] = _interp1d(x, _xp, _fp, left=left, right=right)
+
+    # Squeeze batch dimension if input was not batched
+    if not _is_batched:
+        out = out.squeeze(0)
 
     return out
 
