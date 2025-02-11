@@ -2,7 +2,9 @@
 
 from typing import Optional
 
+import einops
 import torch
+import torch.nn.functional as F
 from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
 from torch_fourier_filter.utils import (
@@ -171,6 +173,7 @@ def whitening_filter(
     output_shape: Optional[tuple[int, ...]] = None,
     output_rfft: Optional[bool] = None,
     output_fftshift: Optional[bool] = None,
+    smooth_filter: bool = False,
 ) -> torch.Tensor:
     """Create a whitening filter the discrete Fourier transform of an input.
 
@@ -207,6 +210,8 @@ def whitening_filter(
     output_fftshift: bool, optional
         Whether to return the filter fftshifted. If None, then the same as `fftshift`.
         The default is None.
+    smooth_filter: bool, optional
+        Whether to smooth the filter. The default is False.
 
     Returns
     -------
@@ -247,6 +252,12 @@ def whitening_filter(
     max_valid_value = whitening_filter_1d[~above_freq_mask].max()
     whitening_filter_1d /= max_valid_value
 
+    # Smooth the whitening filter
+    if smooth_filter:
+        whitening_filter_1d = gaussian_smoothing(
+            whitening_filter_1d, dim=dim, kernel_size=5, sigma=1.0
+        )
+
     # Set the values above the max frequency to 1
     whitening_filter_1d = torch.where(
         above_freq_mask, torch.ones_like(whitening_filter_1d), whitening_filter_1d
@@ -286,84 +297,60 @@ def whitening_filter(
     return whitening_filter_ndim
 
 
-# def gaussian_smoothing(
-#     tensor: torch.Tensor,
-#     dim: int | tuple[int, ...] = -1,
-#     kernel_size: int = 5,
-#     sigma: float = 1.0,
-# ) -> torch.Tensor:
-#     """
-#     Apply Gaussian smoothing over specified dimensions of a tensor.
+def gaussian_smoothing(
+    tensor: torch.Tensor,
+    dim: int | tuple[int, ...] = -1,
+    kernel_size: int = 5,
+    sigma: float = 1.0,
+) -> torch.Tensor:
+    """Apply Gaussian smoothing over specified dimensions of a tensor.
 
-#     Parameters
-#     ----------
-#     tensor: torch.Tensor
-#         The input tensor to be smoothed.
-#     dim: int | tuple[int, ...]
-#         Dimensions over which to apply smoothing. Can be a single int or tuple of
-#         ints. Negative dimensions are indexed from the end.
-#     kernel_size: int
-#         The size of the Gaussian kernel.
-#     sigma: float
-#         The standard deviation of the Gaussian kernel.
+    Parameters
+    ----------
+    tensor: torch.Tensor
+        The input tensor to be smoothed.
+    dim: int | tuple[int, ...]
+        Dimension over which to apply smoothing. Can be a single int or tuple of
+        a single int.
+    kernel_size: int
+        The size of the Gaussian kernel.
+    sigma: float
+        The standard deviation of the Gaussian kernel.
 
-#     Returns
-#     -------
-#     torch.Tensor
-#         The smoothed tensor with same shape as input.
-#     """
-#     # Convert single dim to tuple
-#     if isinstance(dim, int):
-#         dim = (dim,)
+    Returns
+    -------
+    torch.Tensor
+        The smoothed tensor with same shape as input.
+    """
+    # Convert single dim to tuple
+    if isinstance(dim, int):
+        dim = (dim,)
 
-#     # Convert negative dims to positive
-#     dim = tuple(d if d >= 0 else tensor.dim() + d for d in dim)
+    # Convert negative dims to positive
+    dim = tuple(d if d >= 0 else tensor.dim() + d for d in dim)
 
-#     # Validate dimensions
-#     if not all(0 <= d < tensor.dim() for d in dim):
-#         raise ValueError(
-#             f"Invalid dimensions {dim} for tensor of rank {tensor.dim()}"
-#          )
-#     if len(dim) > 2:
-#         raise ValueError("Gaussian smoothing only supports 1D or 2D operations")
+    # Validate dimensions
+    if not all(0 <= d < tensor.dim() for d in dim):
+        raise ValueError(f"Invalid dimensions {dim} for tensor of rank {tensor.dim()}")
 
-#     # Create coordinate grid for kernel
-#     x = torch.arange(
-#         -kernel_size // 2 + 1,
-#         kernel_size // 2 + 1,
-#         dtype=tensor.dtype,
-#         device=tensor.device,
-#     )
+    # Create coordinate grid for kernel
+    x = torch.arange(
+        -kernel_size // 2 + 1,
+        kernel_size // 2 + 1,
+        dtype=tensor.dtype,
+        device=tensor.device,
+    )
 
-#     if len(dim) == 1:  # 1D smoothing
-#         kernel = torch.exp(-0.5 * (x / sigma) ** 2)
-#         kernel = kernel / kernel.sum()
+    kernel = torch.exp(-0.5 * (x / sigma) ** 2)
+    kernel = kernel / kernel.sum()
 
-#         # Create conv kernel with singleton dimensions
-#         shape = [1] * (tensor.dim())
-#         shape[dim[0]] = kernel_size
-#         kernel = kernel.view(*shape)
+    # Create conv kernel with singleton dimensions
+    shape = [1] * (tensor.dim())
+    shape[dim[0]] = kernel_size
+    kernel = kernel.view(*shape)
 
-#         # Apply 1D convolution
-#         tensor = einops.rearrange(tensor, "... n -> ... 1 1 n")
-#         kernel = einops.rearrange(kernel, "... n -> ... 1 1 n")
-#         smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2)
-#         return einops.rearrange(smoothed_tensor, "... 1 1 n -> ... n")
-
-#     else:  # 2D smoothing
-#         x, y = torch.meshgrid(x, x, indexing="ij")
-#         kernel = torch.exp(-0.5 * ((x / sigma) ** 2 + (y / sigma) ** 2))
-#         kernel = kernel / kernel.sum()
-
-#         # Create conv kernel with singleton dimensions
-#         shape = [1] * (tensor.dim())
-#         shape[dim[0]] = kernel_size
-#         shape[dim[1]] = kernel_size
-#         kernel = kernel.view(*shape)
-#         kernel = einops.rearrange(kernel, "... h w -> ... 1 1 h w")
-#         # Apply 2D convolution
-#         tensor = einops.rearrange(tensor, "... h w -> ... 1 1 h w")
-#         smoothed_tensor = F.conv2d(
-#             tensor, kernel, padding=kernel_size // 2, stride=(1, 1)
-#         )
-#         return einops.rearrange(smoothed_tensor, "... 1 1 h w -> ... h w")
+    # Apply 1D convolution
+    tensor = einops.rearrange(tensor, "... n -> ... 1 1 n")
+    kernel = einops.rearrange(kernel, "... n -> ... 1 1 n")
+    smoothed_tensor = F.conv1d(tensor, kernel, padding=kernel_size // 2)
+    return einops.rearrange(smoothed_tensor, "... 1 1 n -> ... n")
