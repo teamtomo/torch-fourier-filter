@@ -255,7 +255,7 @@ def whitening_filter(
     # Smooth the whitening filter
     if smooth_filter:
         whitening_filter_1d = gaussian_smoothing(
-            whitening_filter_1d, dim=dim, kernel_size=5, sigma=1.0
+            whitening_filter_1d, dim=-1, kernel_size=5, sigma=1.0
         )
 
     # Set the values above the max frequency to 1
