@@ -174,6 +174,8 @@ def whitening_filter(
     output_rfft: Optional[bool] = None,
     output_fftshift: Optional[bool] = None,
     smooth_filter: bool = False,
+    smooth_kernel_size: int = 5,
+    smooth_sigma: float = 1.0,
 ) -> torch.Tensor:
     """Create a whitening filter the discrete Fourier transform of an input.
 
@@ -212,6 +214,11 @@ def whitening_filter(
         The default is None.
     smooth_filter: bool, optional
         Whether to smooth the filter. The default is False.
+    smooth_kernel_size: int, optional
+        The size of the Gaussian kernel to use for smoothing. The default is 5.
+    smooth_sigma: float, optional
+        The standard deviation of the Gaussian kernel to use for smoothing. The default
+        is 1.0.
 
     Returns
     -------
@@ -255,7 +262,10 @@ def whitening_filter(
     # Smooth the whitening filter
     if smooth_filter:
         whitening_filter_1d = gaussian_smoothing(
-            whitening_filter_1d, dim=-1, kernel_size=5, sigma=1.0
+            whitening_filter_1d,
+            dim=-1,
+            kernel_size=smooth_kernel_size,
+            sigma=smooth_sigma,
         )
 
     # Set the values above the max frequency to 1
