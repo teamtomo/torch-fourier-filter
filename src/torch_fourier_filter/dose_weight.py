@@ -42,7 +42,7 @@ def critical_exposure_bfactor(fft_freq: torch.Tensor, bfactor: float) -> torch.T
 
 
 def cumulative_dose_filter_3d(
-    volume_shape: tuple[int, int, int],
+    volume_shape: tuple[int, int, int] | tuple[int, int],
     pixel_size: float = 1,
     start_exposure: float = 0.0,
     end_exposure: float = 30.0,
