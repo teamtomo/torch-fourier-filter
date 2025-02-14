@@ -119,6 +119,7 @@ def power_spectral_density(
     # Construct 1-dimensional grid of frequencies for binning
     if num_freq_bins is None:
         num_freq_bins = calculate_num_freq_bins(shape_over_dim)
+    # num_freq_bins = int(num_freq_bins * 100)
     binning_freqs = torch.linspace(
         start=0.0,
         end=(len(dim) ** 0.5) / 2,  # corner of Fourier space
@@ -176,6 +177,7 @@ def whitening_filter(
     smooth_filter: bool = False,
     smooth_kernel_size: int = 5,
     smooth_sigma: float = 1.0,
+    return_1d: bool = False,
 ) -> torch.Tensor:
     """Create a whitening filter the discrete Fourier transform of an input.
 
@@ -219,11 +221,15 @@ def whitening_filter(
     smooth_sigma: float, optional
         The standard deviation of the Gaussian kernel to use for smoothing. The default
         is 1.0.
+    return_1d: bool, optional
+        Whether to return the filter in 1D form. The default is False.
 
     Returns
     -------
-    torch.Tensor
-        The whitening filter in Fourier space.
+    torch.Tensor | tuple[torch.Tensor, torch.Tensor]
+        If return_1d is False, returns just the N-dimensional whitening filter in
+        Fourier space. If return_1d is True, returns a tuple of (whitening_filter_ndim,
+        whitening_filter_1d).
     """
     dim = _handle_dim(dim, image_dft.ndim)
 
@@ -304,6 +310,8 @@ def whitening_filter(
         fill_upper=1.0,
     )
 
+    if return_1d:
+        return whitening_filter_ndim, whitening_filter_1d, frequency_1d
     return whitening_filter_ndim
 
 
