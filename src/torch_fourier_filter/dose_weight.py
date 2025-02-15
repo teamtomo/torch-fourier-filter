@@ -49,6 +49,7 @@ def cumulative_dose_filter_3d(
     crit_exposure_bfactor: int | float = -1,
     rfft: bool = True,
     fftshift: bool = False,
+    device: torch.device | None = None,
 ) -> torch.Tensor:
     """
     Dose weight a 3D volume using Grant and Grigorieff 2015.
@@ -73,6 +74,8 @@ def cumulative_dose_filter_3d(
         If the FFT is a real FFT.
     fftshift : bool
         If the FFT is shifted.
+    device : torch.device
+        The device to use for the calculation.
 
     Returns
     -------
@@ -85,6 +88,7 @@ def cumulative_dose_filter_3d(
         rfft=rfft,
         fftshift=fftshift,
         norm=True,
+        device=device,
     )
     fft_freq_px /= pixel_size  # Convert to Angstrom^-1
 
