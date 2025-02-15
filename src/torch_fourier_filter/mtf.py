@@ -29,6 +29,7 @@ def make_mtf_grid(
     mtf_amplitudes: torch.Tensor,  # 1D tensor
     rfft: bool = True,
     fftshift: bool = False,
+    device: torch.device | None = None,
 ) -> torch.Tensor:
     """
     Make a MTF grid from the frequencies and amplitudes.
@@ -40,6 +41,7 @@ def make_mtf_grid(
         mtf_amplitudes: The amplitudes of the MTF.
         rfft: If the FFT is a real FFT.
         fftshift: If the FFT is shifted.
+        device: The device to use for the calculation.
 
     Returns
     -------
@@ -51,6 +53,7 @@ def make_mtf_grid(
         rfft=rfft,
         fftshift=fftshift,
         norm=True,
+        device=device,
     )  # Shape: (*image_shape), this return the frequency grid in range 0-0.5
 
     # Now map the MTF ampltiudes onto the corresponding frequencies
