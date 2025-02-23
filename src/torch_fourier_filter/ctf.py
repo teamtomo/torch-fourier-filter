@@ -3,7 +3,7 @@
 import einops
 import torch
 from scipy import constants as C
-from torch_grid_utils.fftfreq_grid import fftfreq_grid, fftshift_2d
+from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
 
 def calculate_relativistic_electron_wavelength(energy: float) -> float:
@@ -51,8 +51,9 @@ def calculate_ctf_2d(
     rfft: bool,
     fftshift: bool,
 ) -> torch.Tensor:
-    """
-    Calculate the Contrast Transfer Function (CTF) for a 2D image.
+    """Calculate the Contrast Transfer Function (CTF) for a 2D image.
+
+    NOTE: The device of the input tensors is inferred from the `defocus` tensor.
 
     Parameters
     ----------
@@ -89,26 +90,39 @@ def calculate_ctf_2d(
     ctf: torch.Tensor
         The Contrast Transfer Function for the given parameters.
     """
-    # to torch.Tensor and unit conversions
+    if isinstance(defocus, torch.Tensor):
+        device = defocus.device
+    else:
+        device = torch.device("cpu")
+
+    # to torch.Tensor
     cs_tensor = False
-    defocus = torch.atleast_1d(torch.as_tensor(defocus, dtype=torch.float))
-    defocus *= 1e4  # micrometers -> angstroms
-    astigmatism = torch.atleast_1d(torch.as_tensor(astigmatism, dtype=torch.float))
-    astigmatism *= 1e4  # micrometers -> angstroms
+    defocus = torch.atleast_1d(
+        torch.as_tensor(defocus, dtype=torch.float, device=device)
+    )
+    astigmatism = torch.atleast_1d(
+        torch.as_tensor(astigmatism, dtype=torch.float, device=device)
+    )
     astigmatism_angle = torch.atleast_1d(
-        torch.as_tensor(astigmatism_angle, dtype=torch.float)
+        torch.as_tensor(astigmatism_angle, dtype=torch.float, device=device)
     )
-    astigmatism_angle *= C.pi / 180  # degrees -> radians
-    pixel_size = torch.atleast_1d(torch.as_tensor(pixel_size))
-    voltage = torch.atleast_1d(torch.as_tensor(voltage, dtype=torch.float))
-    voltage *= 1e3  # kV -> V
+    pixel_size = torch.atleast_1d(torch.as_tensor(pixel_size, device=device))
+    voltage = torch.atleast_1d(
+        torch.as_tensor(voltage, dtype=torch.float, device=device)
+    )
     spherical_aberration = torch.atleast_1d(
-        torch.as_tensor(spherical_aberration, dtype=torch.float)
+        torch.as_tensor(spherical_aberration, dtype=torch.float, device=device)
     )
-    spherical_aberration *= 1e7  # mm -> angstroms
     if spherical_aberration.shape[0] > 1:
         cs_tensor = True
-    image_shape = torch.as_tensor(image_shape)
+    image_shape = torch.as_tensor(image_shape, device=device)
+
+    # Unit conversions
+    defocus *= 1e4  # micrometers -> angstroms
+    astigmatism *= 1e4  # micrometers -> angstroms
+    astigmatism_angle *= C.pi / 180  # degrees -> radians
+    voltage *= 1e3  # kV -> V
+    spherical_aberration *= 1e7  # mm -> angstroms
 
     # derived quantities used in CTF calculation
     defocus_u = defocus + astigmatism
@@ -129,6 +143,7 @@ def calculate_ctf_2d(
         rfft=rfft,
         fftshift=fftshift,
         norm=False,
+        device=device,
     )
 
     fft_freq_grid = fft_freq_grid / einops.rearrange(pixel_size, "b -> b 1 1 1")
@@ -174,8 +189,7 @@ def calculate_ctf_2d(
     ctf = -torch.sin(k1 * (Axx_x2 + (2 * Axy_xy) + Ayy_y2) + k2 * n4 - k3 - k5)
     if k4 > 0:
         ctf *= torch.exp(k4 * n4)
-    if fftshift is True:
-        ctf = fftshift_2d(ctf, rfft=rfft)
+
     return ctf
 
 
