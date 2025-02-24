@@ -9,6 +9,83 @@ import torch
 from torch_fourier_filter.whitening import whitening_filter
 
 
+def plot_whitening_spectrum_bins_comparison(mrc_path):
+    """
+    Plotting whitening filter results
+    """
+    # Load MRC file
+    with mrcfile.open(mrc_path) as mrc:
+        image = mrc.data
+
+    # If 3D, take central slice
+    if len(image.shape) == 3:
+        image = image[image.shape[0] // 2]
+
+    # Convert to torch tensor
+    image_tensor = torch.from_numpy(image).float()
+
+    # Compute FFT
+    image_dft = torch.fft.rfft2(image_tensor)
+    image_dft[0, 0] = 0 + 0j
+    max_freq = 0.5
+
+    # Define different frequency bin parameters to test
+    freq_bin_params = [10, 50, 100, 500, 3000, 10000]
+
+    # Create subplot for frequency bin comparison
+    #fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+
+    # First plot unsmoothed filter
+    filter_result, filter_1d, frequency_1d = whitening_filter(
+        image_dft=image_dft,
+        rfft=True,
+        max_freq=max_freq,
+        output_shape=image.shape,
+        smooth_filter=False,  # No smoothing
+        return_1d=True,
+    )
+
+    filter_np = filter_1d.cpu().numpy()
+    freq_axis = frequency_1d.cpu().numpy()
+
+    # Add unsmoothed to plot
+    #ax.plot(freq_axis, filter_np, "--", label="Unsmoothed", color="black")
+    all_results = []
+    # Plot frequency bin sizes cumulatively
+    for i in range(len(freq_bin_params)):
+        filter_result, filter_1d, frequency_1d = whitening_filter(
+            image_dft=image_dft,
+            rfft=True,
+            max_freq=max_freq,
+            output_shape=image.shape,
+            smooth_filter=False,  # No Gaussian smoothing
+            num_freq_bins=freq_bin_params[i],  # Vary number of frequency bins
+            return_1d=True,
+        )
+
+        filter_np = filter_1d.cpu().numpy()
+        freq_axis = frequency_1d.cpu().numpy()
+        all_results.append((freq_axis, filter_np, f'bins={freq_bin_params[i]}'))
+        fig, ax = plt.subplots(1, 1, figsize=(12, 6))
+        for result in all_results:
+            if result[2] == "Unsmoothed":
+                ax.plot(result[0], result[1], "--", label=result[2], color="black")
+            else:
+                ax.plot(result[0], result[1], label=result[2])
+        
+        # Update plot after each addition
+        ax.set_xlabel("Frequency (relative to Nyquist)")
+        ax.set_ylabel("Filter magnitude")
+        ax.set_title("Effect of Different Frequency Bin Sizes")
+        ax.legend()
+        ax.grid(True)
+        ax.set_xlim(0, max_freq - 0.01)
+        ax.set_ylim(0, 1.01)
+        plt.tight_layout()
+        plt.show()
+
+
+
 def plot_whitening_spectrum_smoothing_comparison(mrc_path):
     """
     Plotting whitening filter results
@@ -314,5 +391,6 @@ def plot_power_spectrum(mrc_path):
 if __name__ == "__main__":
     # Replace with your MRC file path
     mrc_path = "/Users/josh/git/benchmark_template_matching_methods/data/xenon_225_000_0.0_DW.mrc"
-    plot_whitening_spectrum_smoothing_comparison(mrc_path)
-    plot_power_spectrum(mrc_path)
+    #plot_whitening_spectrum_smoothing_comparison(mrc_path)
+    plot_whitening_spectrum_bins_comparison(mrc_path)
+    #plot_power_spectrum(mrc_path)
