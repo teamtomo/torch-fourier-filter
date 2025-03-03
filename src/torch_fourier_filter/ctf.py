@@ -74,7 +74,7 @@ def calculate_ctf_2d(
     amplitude_contrast: float
         Fraction of amplitude contrast (value in range [0, 1]).
     b_factor: float
-        B-factor in square angstroms.
+        B-factor in square angstroms. Should be positive
     phase_shift: float
         Angle of phase shift applied to CTF in degrees.
     image_shape: Tuple[int, int]
@@ -187,7 +187,7 @@ def calculate_ctf_2d(
 
     # calculate ctf
     ctf = -torch.sin(k1 * (Axx_x2 + (2 * Axy_xy) + Ayy_y2) + k2 * n4 - k3 - k5)
-    if k4 > 0:
+    if k4 < 0:
         ctf *= torch.exp(k4 * n4)
 
     return ctf
@@ -220,7 +220,7 @@ def calculate_ctf_1d(
     amplitude_contrast: float
         Fraction of amplitude contrast (value in range [0, 1]).
     b_factor: float
-        B-factor in square angstroms.
+        B-factor in square angstroms. Should be positive
     phase_shift: float
         Angle of phase shift applied to CTF in degrees.
     n_samples: int
@@ -280,7 +280,7 @@ def calculate_ctf_1d(
 
     # calculate ctf
     ctf = -torch.sin(k1 * fftfreq_grid_squared * defocus + k2 * n4 - k3 - k5)
-    if k4 > 0:
+    if k4 < 0:
         ctf *= torch.exp(k4 * n4)
 
     if oversampling_factor > 1:
