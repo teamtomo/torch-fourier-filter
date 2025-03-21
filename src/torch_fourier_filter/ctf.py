@@ -25,7 +25,7 @@ def calculate_relativistic_electron_wavelength(energy: float | _torch.Tensor ) -
     wavelength: float | torch.Tensor
         relativistic wavelength of the electron in meters.
     """
-    h = __C.Planck
+    h = _C.Planck
     c = _C.speed_of_light
     m0 = _C.electron_mass
     e = _C.elementary_charge
