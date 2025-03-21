@@ -1,12 +1,12 @@
 """CTF module for Fourier filtering."""
 
-import einops
-import torch
-from scipy import constants as C
-from torch_grid_utils.fftfreq_grid import fftfreq_grid
+import einops as _einops
+import torch as _torch
+from scipy import constants as _C
+from torch_grid_utils.fftfreq_grid import fftfreq_grid as _fftfreq_grid
 
 
-def calculate_relativistic_electron_wavelength(energy: float | torch.Tensor ) -> torch.Tensor:
+def calculate_relativistic_electron_wavelength(energy: float | _torch.Tensor ) -> _torch.Tensor:
     """Calculate the relativistic electron wavelength in SI units.
 
     For derivation see:
@@ -25,32 +25,32 @@ def calculate_relativistic_electron_wavelength(energy: float | torch.Tensor ) ->
     wavelength: float | torch.Tensor
         relativistic wavelength of the electron in meters.
     """
-    h = C.Planck
-    c = C.speed_of_light
-    m0 = C.electron_mass
-    e = C.elementary_charge
-    V = torch.as_tensor(energy, dtype=torch.float)
+    h = __C.Planck
+    c = _C.speed_of_light
+    m0 = _C.electron_mass
+    e = _C.elementary_charge
+    V = _torch.as_tensor(energy, dtype=_torch.float)
     eV = e * V
 
     numerator = h * c
-    denominator = torch.sqrt(eV * (2 * m0 * c**2 + eV))
+    denominator = _torch.sqrt(eV * (2 * m0 * c**2 + eV))
     return numerator / denominator
 
 
 def calculate_ctf_2d(
-    defocus: float | torch.Tensor,
-    astigmatism: float | torch.Tensor,
-    astigmatism_angle: float | torch.Tensor,
-    voltage: float | torch.Tensor,
-    spherical_aberration: float | torch.Tensor,
-    amplitude_contrast: float | torch.Tensor,
-    b_factor: float | torch.Tensor,
-    phase_shift: float | torch.Tensor,
-    pixel_size: float | torch.Tensor,
+    defocus: float | _torch.Tensor,
+    astigmatism: float | _torch.Tensor,
+    astigmatism_angle: float | _torch.Tensor,
+    voltage: float | _torch.Tensor,
+    spherical_aberration: float | _torch.Tensor,
+    amplitude_contrast: float | _torch.Tensor,
+    b_factor: float | _torch.Tensor,
+    phase_shift: float | _torch.Tensor,
+    pixel_size: float | _torch.Tensor,
     image_shape: tuple[int, int],
     rfft: bool,
     fftshift: bool,
-) -> torch.Tensor:
+) -> _torch.Tensor:
     """Calculate the Contrast Transfer Function (CTF) for a 2D image.
 
     NOTE: The device of the input tensors is inferred from the `defocus` tensor.
@@ -86,30 +86,30 @@ def calculate_ctf_2d(
 
     Returns
     -------
-    ctf: torch.Tensor
+    ctf: _torch.Tensor
         The Contrast Transfer Function for the given parameters.
     """
-    if isinstance(defocus, torch.Tensor):
+    if isinstance(defocus, _torch.Tensor):
         device = defocus.device
     else:
-        device = torch.device("cpu")
+        device = _torch.device("cpu")
 
-    # to torch.Tensor
-    defocus = torch.as_tensor(defocus, dtype=torch.float, device=device)
-    astigmatism = torch.as_tensor(astigmatism, dtype=torch.float, device=device)
-    astigmatism_angle = torch.as_tensor(astigmatism_angle, dtype=torch.float, device=device)
-    pixel_size = torch.as_tensor(pixel_size, dtype=torch.float, device=device)
-    voltage = torch.as_tensor(voltage, dtype=torch.float, device=device)
-    spherical_aberration = torch.as_tensor(spherical_aberration, dtype=torch.float, device=device)
-    amplitude_contrast = torch.as_tensor(amplitude_contrast, dtype=torch.float, device=device)
-    b_factor = torch.as_tensor(b_factor, dtype=torch.float, device=device)
-    phase_shift = torch.as_tensor(phase_shift, dtype=torch.float, device=device)
-    image_shape = torch.as_tensor(image_shape, dtype=torch.int, device=device)
+    # to _torch.Tensor
+    defocus = _torch.as_tensor(defocus, dtype=_torch.float, device=device)
+    astigmatism = _torch.as_tensor(astigmatism, dtype=_torch.float, device=device)
+    astigmatism_angle = _torch.as_tensor(astigmatism_angle, dtype=_torch.float, device=device)
+    pixel_size = _torch.as_tensor(pixel_size, dtype=_torch.float, device=device)
+    voltage = _torch.as_tensor(voltage, dtype=_torch.float, device=device)
+    spherical_aberration = _torch.as_tensor(spherical_aberration, dtype=_torch.float, device=device)
+    amplitude_contrast = _torch.as_tensor(amplitude_contrast, dtype=_torch.float, device=device)
+    b_factor = _torch.as_tensor(b_factor, dtype=_torch.float, device=device)
+    phase_shift = _torch.as_tensor(phase_shift, dtype=_torch.float, device=device)
+    image_shape = _torch.as_tensor(image_shape, dtype=_torch.int, device=device)
 
     # Unit conversions
     defocus *= 1e4  # micrometers -> angstroms
     astigmatism *= 1e4  # micrometers -> angstroms
-    astigmatism_angle *= C.pi / 180  # degrees -> radians
+    astigmatism_angle *= _C.pi / 180  # degrees -> radians
     voltage *= 1e3  # kV -> V
     spherical_aberration *= 1e7  # mm -> angstroms
 
@@ -119,28 +119,28 @@ def calculate_ctf_2d(
     _lambda = (
         calculate_relativistic_electron_wavelength(voltage) * 1e10
     ) # meters -> angstroms
-    k1 = -C.pi * _lambda
-    k2 = C.pi / 2 * spherical_aberration * _lambda**3
-    k3 = torch.deg2rad(torch.as_tensor(phase_shift, dtype=torch.float))
+    k1 = -_C.pi * _lambda
+    k2 = _C.pi / 2 * spherical_aberration * _lambda**3
+    k3 = _torch.deg2rad(_torch.as_tensor(phase_shift, dtype=_torch.float))
     k4 = -b_factor / 4
-    k5 = torch.arctan(amplitude_contrast / torch.sqrt(1 - amplitude_contrast**2))
+    k5 = _torch.arctan(amplitude_contrast / _torch.sqrt(1 - amplitude_contrast**2))
     
-    k1 = einops.rearrange(k1, "... -> ... 1 1")
-    k2 = einops.rearrange(k2, "... -> ... 1 1")
-    k3 = einops.rearrange(k3, "... -> ... 1 1")
-    k4 = einops.rearrange(k4, "... -> ... 1 1")
-    k5 = einops.rearrange(k5, "... -> ... 1 1")
+    k1 = _einops.rearrange(k1, "... -> ... 1 1")
+    k2 = _einops.rearrange(k2, "... -> ... 1 1")
+    k3 = _einops.rearrange(k3, "... -> ... 1 1")
+    k4 = _einops.rearrange(k4, "... -> ... 1 1")
+    k5 = _einops.rearrange(k5, "... -> ... 1 1")
     
     # construct 2D frequency grids and rescale cycles / px -> cycles / Å
-    fft_freq_grid = fftfreq_grid(
+    fft_freq_grid = _fftfreq_grid(
         image_shape=image_shape,
         rfft=rfft,
         fftshift=fftshift,
         norm=False,
         device=device,
     )
-    fft_freq_grid = fft_freq_grid / einops.rearrange(pixel_size, "... -> ... 1 1 1")
-    fftfreq_grid_squared = fft_freq_grid**2
+    fft_freq_grid = fft_freq_grid / _einops.rearrange(pixel_size, "... -> ... 1 1 1")
+    _fftfreq_grid_squared = fft_freq_grid**2
 
     # Astigmatism
     #         Q = [[ sin, cos]
@@ -154,45 +154,45 @@ def calculate_ctf_2d(
     #         Axy = Ayx = cos * sin * (u - v)
     #         defocus = A.k.k^2 = Axx*x^2 + 2*Axy*x*y + Ayy*y^2
 
-    c = torch.cos(astigmatism_angle)
+    c = _torch.cos(astigmatism_angle)
     c2 = c**2
-    s = torch.sin(astigmatism_angle)
+    s = _torch.sin(astigmatism_angle)
     s2 = s**2
     
-    yy2, xx2 = einops.rearrange(fftfreq_grid_squared, "... h w freq -> freq ... h w")
-    xy = einops.reduce(fft_freq_grid, "... h w freq -> ... h w", reduction="prod")
+    yy2, xx2 = _einops.rearrange(_fftfreq_grid_squared, "... h w freq -> freq ... h w")
+    xy = _einops.reduce(fft_freq_grid, "... h w freq -> ... h w", reduction="prod")
     n4 = (
-        einops.reduce(fftfreq_grid_squared, "... h w freq -> ... h w", reduction="sum") ** 2
+        _einops.reduce(_fftfreq_grid_squared, "... h w freq -> ... h w", reduction="sum") ** 2
     )
     
     Axx = c2 * defocus_u + s2 * defocus_v
     Axy = c * s * (defocus_u - defocus_v)
     Ayy = s2 * defocus_u + c2 * defocus_v
     
-    Ayy_y2 = einops.rearrange(Ayy, "... -> ... 1 1") * yy2
-    Axx_x2 = einops.rearrange(Axx, "... -> ... 1 1") * xx2
-    Axy_xy = einops.rearrange(Axy, "... -> ... 1 1") * xy
+    Ayy_y2 = _einops.rearrange(Ayy, "... -> ... 1 1") * yy2
+    Axx_x2 = _einops.rearrange(Axx, "... -> ... 1 1") * xx2
+    Axy_xy = _einops.rearrange(Axy, "... -> ... 1 1") * xy
     
     # calculate ctf
-    ctf = -torch.sin(k1 * (Axx_x2 + (2 * Axy_xy) + Ayy_y2) + k2 * n4 - k3 - k5)
+    ctf = -_torch.sin(k1 * (Axx_x2 + (2 * Axy_xy) + Ayy_y2) + k2 * n4 - k3 - k5)
 
-    if torch.any(k4 < 0):
+    if _torch.any(k4 < 0):
         idx = (k4 < 0).squeeze(dim=(-2,-1)) 
-        ctf[idx] *= torch.exp(k4[idx] * n4[idx])
+        ctf[idx] *= _torch.exp(k4[idx] * n4[idx])
     return ctf
 
 
 def calculate_ctf_1d(
-    defocus: float | torch.Tensor,
-    voltage: float | torch.Tensor,
-    spherical_aberration: float | torch.Tensor,
-    amplitude_contrast: float | torch.Tensor,
-    b_factor: float | torch.Tensor,
-    phase_shift: float | torch.Tensor,
-    pixel_size: float | torch.Tensor,
+    defocus: float | _torch.Tensor,
+    voltage: float | _torch.Tensor,
+    spherical_aberration: float | _torch.Tensor,
+    amplitude_contrast: float | _torch.Tensor,
+    b_factor: float | _torch.Tensor,
+    phase_shift: float | _torch.Tensor,
+    pixel_size: float | _torch.Tensor,
     n_samples: int,
     oversampling_factor: int,
-) -> torch.Tensor:
+) -> _torch.Tensor:
     """
     Calculate the Contrast Transfer Function (CTF) for a 1D signal.
 
@@ -222,19 +222,19 @@ def calculate_ctf_1d(
     ctf: torch.Tensor
         The Contrast Transfer Function for the given parameters
     """
-    if isinstance(defocus, torch.Tensor):
+    if isinstance(defocus, _torch.Tensor):
         device = defocus.device
     else:
-        device = torch.device("cpu")
+        device = _torch.device("cpu")
         
-    # to torch.Tensor
-    defocus = torch.as_tensor(defocus, dtype=torch.float, device = device)
-    pixel_size = torch.as_tensor(pixel_size, dtype=torch.int, device = device)
-    voltage = torch.as_tensor(voltage, dtype=torch.float, device = device)
-    spherical_aberration = torch.as_tensor(spherical_aberration, dtype=torch.float, device = device)
-    amplitude_contrast = torch.as_tensor(amplitude_contrast, dtype=torch.float, device = device)
-    b_factor = torch.as_tensor(b_factor, dtype=torch.float, device = device)
-    phase_shift = torch.as_tensor(phase_shift, dtype=torch.float, device = device)
+    # to _torch.Tensor
+    defocus = _torch.as_tensor(defocus, dtype=_torch.float, device = device)
+    pixel_size = _torch.as_tensor(pixel_size, dtype=_torch.int, device = device)
+    voltage = _torch.as_tensor(voltage, dtype=_torch.float, device = device)
+    spherical_aberration = _torch.as_tensor(spherical_aberration, dtype=_torch.float, device = device)
+    amplitude_contrast = _torch.as_tensor(amplitude_contrast, dtype=_torch.float, device = device)
+    b_factor = _torch.as_tensor(b_factor, dtype=_torch.float, device = device)
+    phase_shift = _torch.as_tensor(phase_shift, dtype=_torch.float, device = device)
     
     # Unit conversions
     defocus = defocus * 1e4  # micrometers -> angstroms
@@ -246,22 +246,22 @@ def calculate_ctf_1d(
         calculate_relativistic_electron_wavelength(voltage) * 1e10
     )  # meters -> angstroms
     
-    k1 = -C.pi * _lambda
-    k2 = C.pi / 2 * spherical_aberration * _lambda**3
-    k3 = torch.deg2rad(torch.as_tensor(phase_shift, dtype=torch.float))
+    k1 = -_C.pi * _lambda
+    k2 = _C.pi / 2 * spherical_aberration * _lambda**3
+    k3 = _torch.deg2rad(_torch.as_tensor(phase_shift, dtype=_torch.float))
     k4 = -b_factor / 4
-    k5 = torch.arctan(amplitude_contrast / torch.sqrt(1 - amplitude_contrast**2))
+    k5 = _torch.arctan(amplitude_contrast / _torch.sqrt(1 - amplitude_contrast**2))
     
-    k1 = einops.rearrange(k1, "... -> ... 1 1")
-    k2 = einops.rearrange(k2, "... -> ... 1 1")
-    k3 = einops.rearrange(k3, "... -> ... 1 1")
-    k4 = einops.rearrange(k4, "... -> ... 1 1")
-    k5 = einops.rearrange(k5, "... -> ... 1 1")
-    defocus = einops.rearrange(defocus, "... -> ... 1 1") # oversampling dim
-    pixel_size = einops.rearrange(pixel_size, "... -> ... 1 1") # oversampling dim
+    k1 = _einops.rearrange(k1, "... -> ... 1 1")
+    k2 = _einops.rearrange(k2, "... -> ... 1 1")
+    k3 = _einops.rearrange(k3, "... -> ... 1 1")
+    k4 = _einops.rearrange(k4, "... -> ... 1 1")
+    k5 = _einops.rearrange(k5, "... -> ... 1 1")
+    defocus = _einops.rearrange(defocus, "... -> ... 1 1") # oversampling dim
+    pixel_size = _einops.rearrange(pixel_size, "... -> ... 1 1") # oversampling dim
     
     # construct frequency vector and rescale cycles / px -> cycles / Å
-    fftfreq_grid = torch.linspace(0, 0.5, steps=n_samples)  # (n_samples, 
+    _fftfreq_grid = _torch.linspace(0, 0.5, steps=n_samples)  # (n_samples, 
     
     # oversampling...
     if oversampling_factor > 1:
@@ -270,20 +270,20 @@ def calculate_ctf_1d(
         oversampled_interval_length = oversampled_frequency_delta * (
             oversampling_factor - 1
         )
-        per_frequency_deltas = torch.linspace(
+        per_frequency_deltas = _torch.linspace(
             0, oversampled_interval_length, steps=oversampling_factor
         )
         per_frequency_deltas -= oversampled_interval_length / 2
-        per_frequency_deltas = einops.rearrange(per_frequency_deltas, "os -> os 1")
-        fftfreq_grid = fftfreq_grid + per_frequency_deltas
-    fftfreq_grid = fftfreq_grid / pixel_size
-    fftfreq_grid_squared = fftfreq_grid**2
-    n4 = fftfreq_grid_squared**2
+        per_frequency_deltas = _einops.rearrange(per_frequency_deltas, "os -> os 1")
+        _fftfreq_grid = _fftfreq_grid + per_frequency_deltas
+    _fftfreq_grid = _fftfreq_grid / pixel_size
+    _fftfreq_grid_squared = _fftfreq_grid**2
+    n4 = _fftfreq_grid_squared**2
     
     # calculate ctf
-    ctf = -torch.sin(k1 * fftfreq_grid_squared * defocus + k2 * n4 - k3 - k5)
-    if torch.any(k4 < 0):
+    ctf = -_torch.sin(k1 * _fftfreq_grid_squared * defocus + k2 * n4 - k3 - k5)
+    if _torch.any(k4 < 0):
         idx = (k4 < 0).squeeze(dim=(-2,-1)) 
-        ctf[idx] *= torch.exp(k4[idx] * n4[idx])
-    ctf = einops.reduce(ctf, "... os k -> ... k", reduction="mean") # oversampling reduction
+        ctf[idx] *= _torch.exp(k4[idx] * n4[idx])
+    ctf = _einops.reduce(ctf, "... os k -> ... k", reduction="mean") # oversampling reduction
     return ctf
