@@ -17,12 +17,12 @@ def calculate_relativistic_electron_wavelength(energy: float | torch.Tensor ) ->
 
     Parameters
     ----------
-    energy: float
+    energy: float | torch.Tensor
         acceleration potential in volts.
 
     Returns
     -------
-    wavelength: float
+    wavelength: float | torch.Tensor
         relativistic wavelength of the electron in meters.
     """
     h = C.Planck
@@ -34,7 +34,7 @@ def calculate_relativistic_electron_wavelength(energy: float | torch.Tensor ) ->
 
     numerator = h * c
     denominator = torch.sqrt(eV * (2 * m0 * c**2 + eV))
-    return numerator / denominator  # (b,)
+    return numerator / denominator
 
 
 def calculate_ctf_2d(
@@ -57,25 +57,25 @@ def calculate_ctf_2d(
 
     Parameters
     ----------
-    defocus: float or torch.Tensor
+    defocus: float | torch.Tensor
         Defocus in micrometers, positive is underfocused.
         `(defocus_u + defocus_v) / 2`
-    astigmatism: float or torch.Tensor
+    astigmatism: float | torch.Tensor
         Amount of astigmatism in micrometers.
         `(defocus_u - defocus_v) / 2`
-    astigmatism_angle: float or torch.Tensor
+    astigmatism_angle: float | torch.Tensor
         Angle of astigmatism in degrees. 0 places `defocus_u` along the y-axis.
-    pixel_size: float or torch.Tensor
+    pixel_size: float | torch.Tensor
         Pixel size in Angströms per pixel (Å px⁻¹).
-    voltage: float or torch.Tensor
+    voltage: float | torch.Tensor
         Acceleration voltage in kilovolts (kV).
-    spherical_aberration: float or torch.Tensor
+    spherical_aberration: float | torch.Tensor
         Spherical aberration in millimeters (mm).
-    amplitude_contrast: float or torch.Tensor
+    amplitude_contrast: float | torch.Tensor
         Fraction of amplitude contrast (value in range [0, 1]).
-    b_factor: float or torch.Tensor
+    b_factor: float | torch.Tensor
         B-factor in square angstroms. Should be positive
-    phase_shift: float or torch.Tensor
+    phase_shift: float | torch.Tensor
         Angle of phase shift applied to CTF in degrees.
     image_shape: Tuple[int, int]
         Shape of 2D images onto which CTF will be applied.
@@ -198,19 +198,19 @@ def calculate_ctf_1d(
 
     Parameters
     ----------
-    defocus: float or torch.Tensor
+    defocus: float | torch.Tensor
         Defocus in micrometers, positive is underfocused.
-    pixel_size: float or torch.Tensor
+    pixel_size: float | torch.Tensor
         Pixel size in Angströms per pixel (Å px⁻¹).
-    voltage: float or torch.Tensor
+    voltage: float | torch.Tensor
         Acceleration voltage in kilovolts (kV).
-    spherical_aberration: float or torch.Tensor
+    spherical_aberration: float | torch.Tensor
         Spherical aberration in millimeters (mm).
-    amplitude_contrast: float or torch.Tensor
+    amplitude_contrast: float | torch.Tensor
         Fraction of amplitude contrast (value in range [0, 1]).
-    b_factor: float or torch.Tensor
+    b_factor: float | torch.Tensor
         B-factor in square angstroms. Should be positive
-    phase_shift: float or torch.Tensor
+    phase_shift: float | torch.Tensor
         Angle of phase shift applied to CTF in degrees.
     n_samples: int
         Number of samples in CTF.
