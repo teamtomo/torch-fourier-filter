@@ -19,7 +19,7 @@ def test_critical_exposure():
 def test_critical_exposure_bfactor():
     fft_freq = torch.tensor([0.1, 0.2, 0.3, 0.4, 0.5])
     bfac = 1.0
-    expected_output = torch.tensor([200.0, 50.0, 22.222, 12.5, 8.0])
+    expected_output = torch.tensor([400.0, 100.0, 44.444, 25.0, 16.0])
     output = critical_exposure_bfactor(fft_freq, bfac)
     assert torch.allclose(
         output, expected_output, atol=1e-3

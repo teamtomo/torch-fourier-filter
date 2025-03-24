@@ -1,6 +1,11 @@
 import torch
 
-from torch_fourier_filter.envelopes import Cc_envelope, Cs_envelope, b_envelope
+from torch_fourier_filter.envelopes import (
+    Cc_envelope,
+    Cs_envelope,
+    b_envelope,
+    dose_envelope,
+)
 
 
 def test_bfactor_2d():
@@ -31,6 +36,35 @@ def test_bfactor_2d():
             [0.88381535, 0.88381535, 0.88381535, 0.88381535],
             [1.0438573, 1.0438573, 1.0438573, 1.0438573],
             [0.88381535, 0.88381535, 0.88381535, 0.88381535],
+        ]
+    )
+    assert torch.allclose(result, expected, atol=1e-3)
+
+
+def test_dose_envelope():
+    # Generate an image
+    fluence = 20
+    image = torch.zeros((4, 4))
+    image[1:, :] = 1
+    # apply bfactor
+    dft = torch.fft.rfftn(image, dim=(-2, -1))
+    dose_env = dose_envelope(
+        fluence=fluence,
+        image_shape=image.shape,
+        pixel_size=1,
+        rfft=True,
+        fftshift=False,
+        device=dft.device,
+    )
+    dft_env = dft * dose_env
+    result = torch.real(torch.fft.irfftn(dft_env, dim=(-2, -1)))
+
+    expected = torch.tensor(
+        [
+            [0.7495, 0.7495, 0.7495, 0.7495],
+            [0.7500, 0.7500, 0.7500, 0.7500],
+            [0.7505, 0.7505, 0.7505, 0.7505],
+            [0.7500, 0.7500, 0.7500, 0.7500],
         ]
     )
     assert torch.allclose(result, expected, atol=1e-3)
