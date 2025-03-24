@@ -21,6 +21,7 @@ def b_envelope(
     ----------
     B: float
         The B-factor value.
+        Suggested value is 5 A^2 / e-/A^2
     image_shape: tuple[int, ...]
         Shape of the real space the dft is from input image.
     pixel_size: float
@@ -51,6 +52,59 @@ def b_envelope(
     divisor = 4  # this is 4 for amplitude, 2 for intensity
     b_tensor = torch.exp(-(B * frequency_grid_px**2) / divisor)
     return b_tensor
+
+
+def dose_envelope(
+    fluence: float,
+    image_shape: tuple[int, int] | tuple[int, int, int],
+    pixel_size: float,
+    rfft: bool = True,
+    fftshift: bool = False,
+    device: torch.device = None,
+) -> torch.Tensor:
+    """
+    Create Grant and Grigorieff 2015 dose envelope for a Fourier transform.
+
+    Parameters
+    ----------
+    fluence: float
+        The fluence of the electron beam in e-/A^2.
+    image_shape: tuple[int, ...]
+        Shape of the real space the dft is from input image.
+    pixel_size: float
+        The pixel size of the image.
+    rfft: bool
+        Whether the input is from an rfft (True) or full fft (False).
+    fftshift: bool
+        Whether the input is fftshifted.
+    device: torch.device
+        Device to place tensors on.
+
+    Returns
+    -------
+    torch.Tensor
+        Dose envelope
+    """
+    a = 0.245
+    b = -1.665
+    c = 2.81
+
+    frequency_grid_px = (
+        fftfreq_grid(
+            image_shape=image_shape,
+            rfft=rfft,
+            fftshift=fftshift,
+            norm=True,
+            device=device,
+        )
+        / pixel_size
+    )
+    if fluence < c:
+        fluence_env = torch.ones_like(frequency_grid_px)
+    else:
+        fluence_env = torch.exp(-(fluence - c) / (a * torch.pow(frequency_grid_px, b)))
+
+    return fluence_env
 
 
 def Cs_envelope(
