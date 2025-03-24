@@ -37,7 +37,7 @@ def critical_exposure_bfactor(fft_freq: torch.Tensor, bfactor: float) -> torch.T
         The critical exposure for the given frequency grid
     """
     eps = 1e-10
-    Ne = 2 / (bfactor * fft_freq.clamp(min=eps) ** 2)
+    Ne = 4 / (bfactor * fft_freq.clamp(min=eps) ** 2)
     return Ne
 
 
