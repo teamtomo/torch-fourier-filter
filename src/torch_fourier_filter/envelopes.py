@@ -60,6 +60,9 @@ def dose_envelope(
     pixel_size: float,
     rfft: bool = True,
     fftshift: bool = False,
+    a: float = 0.245,
+    b: float = -1.665,
+    c: float = 2.81,
     device: torch.device = None,
 ) -> torch.Tensor:
     """
@@ -77,6 +80,12 @@ def dose_envelope(
         Whether the input is from an rfft (True) or full fft (False).
     fftshift: bool
         Whether the input is fftshifted.
+    a: float
+        The a parameter of the dose envelope.
+    b: float
+        The b parameter of the dose envelope.
+    c: float
+        The c parameter of the dose envelope.
     device: torch.device
         Device to place tensors on.
 
@@ -85,10 +94,6 @@ def dose_envelope(
     torch.Tensor
         Dose envelope
     """
-    a = 0.245
-    b = -1.665
-    c = 2.81
-
     frequency_grid_px = (
         fftfreq_grid(
             image_shape=image_shape,
