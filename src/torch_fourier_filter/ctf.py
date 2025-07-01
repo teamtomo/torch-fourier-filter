@@ -229,7 +229,7 @@ def calculate_ctf_1d(
         
     # to torch.Tensor
     defocus = torch.as_tensor(defocus, dtype=torch.float, device = device)
-    pixel_size = torch.as_tensor(pixel_size, dtype=torch.int, device = device)
+    pixel_size = torch.as_tensor(pixel_size, dtype=torch.float, device = device)
     voltage = torch.as_tensor(voltage, dtype=torch.float, device = device)
     spherical_aberration = torch.as_tensor(spherical_aberration, dtype=torch.float, device = device)
     amplitude_contrast = torch.as_tensor(amplitude_contrast, dtype=torch.float, device = device)
