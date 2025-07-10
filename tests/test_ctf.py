@@ -6,6 +6,28 @@ from torch_fourier_filter.ctf import (
     calculate_relativistic_electron_wavelength,
 )
 
+EXPECTED_2D = torch.tensor(
+        [[[ 0.1000,  0.2427,  0.6287,  0.9862,  0.6624, -0.5461,  0.6624,  0.9862,  0.6287,  0.2427],
+          [ 0.2427,  0.3802,  0.7344,  0.9998,  0.5475, -0.6611,  0.5475,  0.9998,  0.7344,  0.3802],
+          [ 0.6287,  0.7344,  0.9519,  0.9161,  0.1449, -0.9151,  0.1449,  0.9161,  0.9519,  0.7344],
+          [ 0.9862,  0.9998,  0.9161,  0.4211, -0.5461, -0.9531, -0.5461,  0.4211,  0.9161,  0.9998],
+          [ 0.6624,  0.5475,  0.1449, -0.5461, -0.9998, -0.2502, -0.9998, -0.5461,  0.1449,  0.5475],
+          [-0.5461, -0.6611, -0.9151, -0.9531, -0.2502,  0.8651, -0.2502, -0.9531, -0.9151, -0.6611],
+          [ 0.6624,  0.5475,  0.1449, -0.5461, -0.9998, -0.2502, -0.9998, -0.5461,  0.1449,  0.5475],
+          [ 0.9862,  0.9998,  0.9161,  0.4211, -0.5461, -0.9531, -0.5461,  0.4211,  0.9161,  0.9998],
+          [ 0.6287,  0.7344,  0.9519,  0.9161,  0.1449, -0.9151,  0.1449,  0.9161,  0.9519,  0.7344],
+          [ 0.2427,  0.3802,  0.7344,  0.9998,  0.5475, -0.6611,  0.5475,  0.9998,  0.7344,  0.3802]],
+         [[ 0.1000,  0.3351,  0.8755,  0.7628, -0.7326, -0.1474, -0.7326,  0.7628,  0.8755,  0.3351],
+          [ 0.3351,  0.5508,  0.9657,  0.5861, -0.8741,  0.0932, -0.8741,  0.5861,  0.9657,  0.5508],
+          [ 0.8755,  0.9657,  0.8953, -0.0979, -0.9766,  0.7290, -0.9766, -0.0979,  0.8953,  0.9657],
+          [ 0.7628,  0.5861, -0.0979, -0.9648, -0.1474,  0.8998, -0.1474, -0.9648, -0.0979,  0.5861],
+          [-0.7326, -0.8741, -0.9766, -0.1474,  0.9995, -0.5378,  0.9995, -0.1474, -0.9766, -0.8741],
+          [-0.1474,  0.0932,  0.7290,  0.8998, -0.5378, -0.3948, -0.5378,  0.8998,  0.7290,  0.0932],
+          [-0.7326, -0.8741, -0.9766, -0.1474,  0.9995, -0.5378,  0.9995, -0.1474, -0.9766, -0.8741],
+          [ 0.7628,  0.5861, -0.0979, -0.9648, -0.1474,  0.8998, -0.1474, -0.9648, -0.0979,  0.5861],
+          [ 0.8755,  0.9657,  0.8953, -0.0979, -0.9766,  0.7290, -0.9766, -0.0979,  0.8953,  0.9657],
+          [ 0.3351,  0.5508,  0.9657,  0.5861, -0.8741,  0.0932, -0.8741,  0.5861,  0.9657,  0.5508]]]
+    )
 
 def test_1d_ctf_single():
     result = calculate_ctf_1d(
@@ -79,6 +101,34 @@ def test_1d_ctf_batch():
     assert (result.shape == (1,1,2,10))
     assert torch.allclose(result, expected, atol=1e-4)
 
+def test_1dctf_bfactor():
+    result = calculate_ctf_1d(
+        defocus=1.5,
+        pixel_size=8,
+        voltage=300,
+        spherical_aberration=2.7,
+        amplitude_contrast=0.1,
+        b_factor=100,
+        phase_shift=0,
+        n_samples=10,
+        oversampling_factor=3,
+    )
+    expected = torch.tensor(
+        [
+            0.1033,
+            0.1476,
+            0.2784,
+            0.4835,
+            0.7271,
+            0.9327,
+            0.9794,
+            0.7389,
+            0.1736,
+            -0.5358,
+        ]
+    
+    )
+    assert torch.all(expected**2 - result**2 > 0)
 
 def test_calculate_relativistic_electron_wavelength():
     """Check function matches expected value from literature.
@@ -107,27 +157,66 @@ def test_2d_ctf_batch():
         rfft=False,
         fftshift=False,
     )
-    expected = torch.tensor(
-        [[[ 0.1000,  0.2427,  0.6287,  0.9862,  0.6624, -0.5461,  0.6624,  0.9862,  0.6287,  0.2427],
-          [ 0.2427,  0.3802,  0.7344,  0.9998,  0.5475, -0.6611,  0.5475,  0.9998,  0.7344,  0.3802],
-          [ 0.6287,  0.7344,  0.9519,  0.9161,  0.1449, -0.9151,  0.1449,  0.9161,  0.9519,  0.7344],
-          [ 0.9862,  0.9998,  0.9161,  0.4211, -0.5461, -0.9531, -0.5461,  0.4211,  0.9161,  0.9998],
-          [ 0.6624,  0.5475,  0.1449, -0.5461, -0.9998, -0.2502, -0.9998, -0.5461,  0.1449,  0.5475],
-          [-0.5461, -0.6611, -0.9151, -0.9531, -0.2502,  0.8651, -0.2502, -0.9531, -0.9151, -0.6611],
-          [ 0.6624,  0.5475,  0.1449, -0.5461, -0.9998, -0.2502, -0.9998, -0.5461,  0.1449,  0.5475],
-          [ 0.9862,  0.9998,  0.9161,  0.4211, -0.5461, -0.9531, -0.5461,  0.4211,  0.9161,  0.9998],
-          [ 0.6287,  0.7344,  0.9519,  0.9161,  0.1449, -0.9151,  0.1449,  0.9161,  0.9519,  0.7344],
-          [ 0.2427,  0.3802,  0.7344,  0.9998,  0.5475, -0.6611,  0.5475,  0.9998,  0.7344,  0.3802]],
-         [[ 0.1000,  0.3351,  0.8755,  0.7628, -0.7326, -0.1474, -0.7326,  0.7628,  0.8755,  0.3351],
-          [ 0.3351,  0.5508,  0.9657,  0.5861, -0.8741,  0.0932, -0.8741,  0.5861,  0.9657,  0.5508],
-          [ 0.8755,  0.9657,  0.8953, -0.0979, -0.9766,  0.7290, -0.9766, -0.0979,  0.8953,  0.9657],
-          [ 0.7628,  0.5861, -0.0979, -0.9648, -0.1474,  0.8998, -0.1474, -0.9648, -0.0979,  0.5861],
-          [-0.7326, -0.8741, -0.9766, -0.1474,  0.9995, -0.5378,  0.9995, -0.1474, -0.9766, -0.8741],
-          [-0.1474,  0.0932,  0.7290,  0.8998, -0.5378, -0.3948, -0.5378,  0.8998,  0.7290,  0.0932],
-          [-0.7326, -0.8741, -0.9766, -0.1474,  0.9995, -0.5378,  0.9995, -0.1474, -0.9766, -0.8741],
-          [ 0.7628,  0.5861, -0.0979, -0.9648, -0.1474,  0.8998, -0.1474, -0.9648, -0.0979,  0.5861],
-          [ 0.8755,  0.9657,  0.8953, -0.0979, -0.9766,  0.7290, -0.9766, -0.0979,  0.8953,  0.9657],
-          [ 0.3351,  0.5508,  0.9657,  0.5861, -0.8741,  0.0932, -0.8741,  0.5861,  0.9657,  0.5508]]]
-    )
+    expected = EXPECTED_2D
     assert (result.shape == (1,1,2,10,10))
     assert torch.allclose(result[0,0], expected, atol=1e-4)
+
+def test_2d_ctf_astigmatism():
+    result = calculate_ctf_2d(
+        defocus=[2.0, 2.0, 2.5, 2.0],
+        astigmatism=[0.5, 1.0, 0.5, 0.5],
+        astigmatism_angle=[0, 30, 45, 90],
+        pixel_size=8,
+        voltage=300,
+        spherical_aberration=2.7,
+        amplitude_contrast=0.1,
+        b_factor=0,
+        phase_shift=0,
+        image_shape=(10,10),
+        rfft=False,
+        fftshift=False,
+    ) 
+    assert (result.shape == (4, 10, 10))
+    
+    # First case:
+    # Along the X axis the powerspectrum should be like the 2.5 um defocus one
+    assert torch.allclose(result[0, 0, :], EXPECTED_2D[1][0,:], atol=1e-4)
+    # Along the Y axis the powerspectrum should be like the 1.5 um defocus one
+    assert torch.allclose(result[0, :, 0], EXPECTED_2D[0][:,0], atol=1e-4)
+
+    # Second case:
+    # At 30 degrees, X and Y should get half of the astigmatism (cos(60)=0.5), so we still
+    # get the same powerspectrum along the axes as in the first case, since the astigmatism is double.
+    assert torch.allclose(result[1, 0, :], EXPECTED_2D[1][0,:], atol=1e-4)
+    assert torch.allclose(result[1, :, 0], EXPECTED_2D[0][:,0], atol=1e-4)
+
+    # Third case:
+    # At 45 degrees, the powerspectrum should be the same in X and Y and exactly
+    # the average defocus (2.5)
+    assert torch.allclose(result[2, 0, :], EXPECTED_2D[1][0,:] , atol=1e-4)
+    assert torch.allclose(result[2, :, 0], EXPECTED_2D[1][:,0] , atol=1e-4)
+
+    # Fourth case:
+    # At 90 degrees, we should get 2.5 um defocus in the Y axis
+    # and 1.5 um defocus in the X axis.
+    assert torch.allclose(result[3, 0, :], EXPECTED_2D[0][0,:], atol=1e-4)
+    assert torch.allclose(result[3, :, 0], EXPECTED_2D[1][:,0], atol=1e-4)
+
+def test_2d_ctf_bfactor():
+    result = calculate_ctf_2d(
+        defocus=1.5,
+        astigmatism=0.0,
+        astigmatism_angle=0,
+        pixel_size=8,
+        voltage=300,
+        spherical_aberration=2.7,
+        amplitude_contrast=0.1,
+        b_factor=100,
+        phase_shift=0,
+        image_shape=(10,10),
+        rfft=False,
+        fftshift=False,
+    )
+    expected = EXPECTED_2D[0]
+    assert result.shape == (10, 10)
+    assert torch.all(expected**2 - result**2 >= 0)
