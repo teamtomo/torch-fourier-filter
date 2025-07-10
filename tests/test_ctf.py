@@ -219,4 +219,5 @@ def test_2d_ctf_bfactor():
     )
     expected = EXPECTED_2D[0]
     assert result.shape == (10, 10)
-    assert torch.all(expected**2 - result**2 >= 0)
+    # Powerspectrum should be smaller than expected, except at center
+    assert torch.all(expected[1:,1:]**2 - result[1:,1:]**2 > 0)
