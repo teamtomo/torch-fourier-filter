@@ -36,7 +36,7 @@ def calculate_relativistic_electron_wavelength(energy: float | torch.Tensor ) ->
     denominator = torch.sqrt(eV * (2 * m0 * c**2 + eV))
     return numerator / denominator
 
-def calculate_phase_abberation(
+def calculate_phase_aberration(
     defocus_um: torch.Tensor,
     voltage_kv: torch.Tensor,
     spherical_aberration_mm: torch.Tensor,
@@ -63,7 +63,7 @@ def calculate_phase_abberation(
 
     Returns
     -------
-    phase_abberation : torch.Tensor
+    phase_aberration : torch.Tensor
         The phase aberration for the given parameters.
     """
 
@@ -186,7 +186,7 @@ def calculate_ctf_2d(
     defocus = defocus + einops.einsum(direction_unitvector, astigmatism_vector, "... h w f, ... f -> ... h w")**2 * 2 
     # calculate ctf
     ctf = -torch.sin(
-        calculate_phase_abberation(
+        calculate_phase_aberration(
             defocus_um=defocus,
             voltage_kv=voltage,
             spherical_aberration_mm=spherical_aberration,
@@ -288,7 +288,7 @@ def calculate_ctf_1d(
     
     # calculate ctf
     ctf = -torch.sin(
-        calculate_phase_abberation(
+        calculate_phase_aberration(
             defocus_um=defocus,
             voltage_kv=voltage,
             spherical_aberration_mm=spherical_aberration,
