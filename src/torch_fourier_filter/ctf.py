@@ -37,26 +37,26 @@ def calculate_relativistic_electron_wavelength(energy: float | torch.Tensor ) ->
     return numerator / denominator
 
 def calculate_phase_abberation(
-    defocus_um: float | torch.Tensor,
-    voltage_kv: float | torch.Tensor,
-    spherical_aberration_mm: float | torch.Tensor,
-    phase_shift: float | torch.Tensor,
-    amplitude_contrast: float | torch.Tensor,
+    defocus_um: torch.Tensor,
+    voltage_kv: torch.Tensor,
+    spherical_aberration_mm: torch.Tensor,
+    phase_shift: torch.Tensor,
+    amplitude_contrast: torch.Tensor,
     fftfreq_grid_angstrom_squared: torch.Tensor
 ) -> torch.Tensor:
     """Calculate the phase aberration.
 
     Parameters
     ----------
-    defocus_um : float | torch.Tensor
+    defocus_um : torch.Tensor
         Defocus in micrometers, positive is underfocused.
-    voltage_kv : float | torch.Tensor
+    voltage_kv : torch.Tensor
         Acceleration voltage in kilovolts (kV).
-    spherical_aberration_mm : float | torch.Tensor
+    spherical_aberration_mm : torch.Tensor
         Spherical aberration in millimeters (mm).
-    phase_shift : float | torch.Tensor
+    phase_shift : torch.Tensor
         Angle of phase shift applied to CTF in degrees.
-    amplitude_contrast : float | torch.Tensor
+    amplitude_contrast : torch.Tensor
         Fraction of amplitude contrast (value in range [0, 1]).
     fftfreq_grid_angstrom_squared : torch.Tensor
         Precomputed squared frequency grid in Angstroms^-2.
