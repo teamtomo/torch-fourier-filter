@@ -238,11 +238,10 @@ def calculate_ctf_2d(
     astigmatism = einops.rearrange(astigmatism, "... -> ... 1")
     # Multiply with the square root of astigmatism so to get the right amplitude after squaring later
     astigmatism_vector = torch.sqrt(astigmatism) * unit_astigmatism_vector_yx
-    # Calculate unitvectors from the frequency grids
-    # Manual L2 norm calculation: sqrt(sum(x^2)) along the last dimension
+    # Calculate unitvectors from the frequency grids  
+    # Reuse already computed fft_freq_grid_squared to avoid redundant pow operations
     fft_freq_grid_norm = torch.sqrt(
-        torch.sum(fft_freq_grid**2, dim=-1, keepdim=True)
-        + torch.finfo(torch.float32).eps
+        fft_freq_grid_squared.unsqueeze(-1) + torch.finfo(torch.float32).eps
     )
     direction_unitvector = fft_freq_grid / fft_freq_grid_norm
     # Subtract the astigmatism from the defocus
