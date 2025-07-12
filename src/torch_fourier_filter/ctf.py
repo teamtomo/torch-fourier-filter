@@ -85,7 +85,7 @@ def calculate_defocus_phase_aberration(
 def calculate_additional_phase_shift(
     phase_shift_degrees: torch.Tensor,
 ) -> torch.Tensor:
-    return torch.deg2rad(torch.as_tensor(phase_shift_degrees, dtype=torch.float))
+    return torch.deg2rad(phase_shift_degrees)
 
 
 def calculate_amplitude_contrast_equivalent_phase_shift(
@@ -241,7 +241,7 @@ def calculate_ctf_2d(
     # Calculate unitvectors from the frequency grids  
     # Reuse already computed fft_freq_grid_squared to avoid redundant pow operations
     fft_freq_grid_norm = torch.sqrt(
-        fft_freq_grid_squared.unsqueeze(-1) + torch.finfo(torch.float32).eps
+        einops.rearrange(fft_freq_grid_squared, "... -> ... 1") + torch.finfo(torch.float32).eps
     )
     direction_unitvector = fft_freq_grid / fft_freq_grid_norm
     # Subtract the astigmatism from the defocus
