@@ -1,10 +1,11 @@
 """CTF module for Fourier filtering."""
+from einops._torch_specific import allow_ops_in_compiled_graph  # requires einops>=0.6.1
+allow_ops_in_compiled_graph()
 
 import einops
 import torch
 from scipy import constants as C
 from torch_grid_utils.fftfreq_grid import fftfreq_grid
-
 
 def calculate_relativistic_electron_wavelength(
     energy: float | torch.Tensor,
@@ -269,6 +270,66 @@ def calculate_ctf_2d(
 
     return ctf
 
+@torch.compile()
+def calc_ctf_inner(
+    defocus: float | torch.Tensor,
+    voltage: float | torch.Tensor,
+    spherical_aberration: float | torch.Tensor,
+    amplitude_contrast: float | torch.Tensor,
+    phase_shift: float | torch.Tensor,
+    pixel_size: float | torch.Tensor,
+    n_samples: int,
+    oversampling_factor: int,
+) -> torch.Tensor:   
+
+    # construct frequency vector and rescale cycles / px -> cycles / Å
+    fftfreq_grid = torch.linspace(0, 0.5, steps=n_samples)  # (n_samples,
+    # oversampling...
+    if oversampling_factor > 1:
+        frequency_delta = 0.5 / (n_samples - 1)
+        oversampled_frequency_delta = frequency_delta / oversampling_factor
+        oversampled_interval_length = oversampled_frequency_delta * (
+            oversampling_factor - 1
+        )
+        per_frequency_deltas = torch.linspace(
+            0, oversampled_interval_length, steps=oversampling_factor
+        )
+        per_frequency_deltas -= oversampled_interval_length / 2
+        per_frequency_deltas = einops.rearrange(per_frequency_deltas, "os -> os 1")
+        fftfreq_grid = fftfreq_grid + per_frequency_deltas
+
+    # Add singletary frequencies according to the dimensions of fftfreq_grid
+    expansion_string = "... -> ... " + " ".join(["1"] * fftfreq_grid.ndim)
+
+    pixel_size = einops.rearrange(pixel_size, expansion_string)
+    defocus = einops.rearrange(defocus, expansion_string)
+    voltage = einops.rearrange(voltage, expansion_string)
+    spherical_aberration = einops.rearrange(spherical_aberration, expansion_string)
+    phase_shift = einops.rearrange(phase_shift, expansion_string)
+    amplitude_contrast = einops.rearrange(amplitude_contrast, expansion_string)
+
+    fftfreq_grid = fftfreq_grid / pixel_size
+
+    # calculate ctf
+    ctf = -torch.sin(
+        calculate_total_phase_shift(
+            defocus_um=defocus,
+            voltage_kv=voltage,
+            spherical_aberration_mm=spherical_aberration,
+            phase_shift_degrees=phase_shift,
+            amplitude_contrast_fraction=amplitude_contrast,
+            fftfreq_grid_angstrom_squared=fftfreq_grid**2,
+        )
+    )
+
+    if oversampling_factor > 1:
+        # reduce oversampling
+        ctf = einops.reduce(
+            ctf, "... os k -> ... k", reduction="mean"
+        )  # oversampling reduction
+    return ctf
+
+
 
 def calculate_ctf_1d(
     defocus: float | torch.Tensor,
@@ -323,49 +384,13 @@ def calculate_ctf_1d(
     phase_shift = torch.as_tensor(phase_shift, dtype=torch.float, device=device)
     pixel_size = torch.as_tensor(pixel_size, dtype=torch.float, device=device)
 
-    # construct frequency vector and rescale cycles / px -> cycles / Å
-    fftfreq_grid = torch.linspace(0, 0.5, steps=n_samples)  # (n_samples,
-    # oversampling...
-    if oversampling_factor > 1:
-        frequency_delta = 0.5 / (n_samples - 1)
-        oversampled_frequency_delta = frequency_delta / oversampling_factor
-        oversampled_interval_length = oversampled_frequency_delta * (
-            oversampling_factor - 1
-        )
-        per_frequency_deltas = torch.linspace(
-            0, oversampled_interval_length, steps=oversampling_factor
-        )
-        per_frequency_deltas -= oversampled_interval_length / 2
-        per_frequency_deltas = einops.rearrange(per_frequency_deltas, "os -> os 1")
-        fftfreq_grid = fftfreq_grid + per_frequency_deltas
-
-    # Add singletary frequencies according to the dimensions of fftfreq_grid
-    expansion_string = "... -> ... " + " ".join(["1"] * fftfreq_grid.ndim)
-
-    pixel_size = einops.rearrange(pixel_size, expansion_string)
-    defocus = einops.rearrange(defocus, expansion_string)
-    voltage = einops.rearrange(voltage, expansion_string)
-    spherical_aberration = einops.rearrange(spherical_aberration, expansion_string)
-    phase_shift = einops.rearrange(phase_shift, expansion_string)
-    amplitude_contrast = einops.rearrange(amplitude_contrast, expansion_string)
-
-    fftfreq_grid = fftfreq_grid / pixel_size
-
-    # calculate ctf
-    ctf = -torch.sin(
-        calculate_total_phase_shift(
-            defocus_um=defocus,
-            voltage_kv=voltage,
-            spherical_aberration_mm=spherical_aberration,
-            phase_shift_degrees=phase_shift,
-            amplitude_contrast_fraction=amplitude_contrast,
-            fftfreq_grid_angstrom_squared=fftfreq_grid**2,
-        )
+    return calc_ctf_inner(
+        defocus=defocus,
+        voltage=voltage,
+        spherical_aberration=spherical_aberration,
+        amplitude_contrast=amplitude_contrast,
+        phase_shift=phase_shift,
+        pixel_size=pixel_size,
+        n_samples=n_samples,
+        oversampling_factor=oversampling_factor
     )
-
-    if oversampling_factor > 1:
-        # reduce oversampling
-        ctf = einops.reduce(
-            ctf, "... os k -> ... k", reduction="mean"
-        )  # oversampling reduction
-    return ctf
