@@ -36,7 +36,6 @@ def test_1d_ctf_single():
         voltage=300,
         spherical_aberration=2.7,
         amplitude_contrast=0.1,
-        b_factor=0,
         phase_shift=0,
         n_samples=10,
         oversampling_factor=3,
@@ -65,7 +64,6 @@ def test_1d_ctf_batch():
         voltage=[[[300, 300]]],
         spherical_aberration=[[[2.7, 2.7]]],
         amplitude_contrast=[[[0.1, 0.1]]],
-        b_factor=[[[0, 0]]],
         phase_shift=[[[0, 0]]],
         n_samples=10,
         oversampling_factor=1,
@@ -101,34 +99,6 @@ def test_1d_ctf_batch():
     assert (result.shape == (1,1,2,10))
     assert torch.allclose(result, expected, atol=1e-4)
 
-def test_1dctf_bfactor():
-    result = calculate_ctf_1d(
-        defocus=1.5,
-        pixel_size=8,
-        voltage=300,
-        spherical_aberration=2.7,
-        amplitude_contrast=0.1,
-        b_factor=100,
-        phase_shift=0,
-        n_samples=10,
-        oversampling_factor=3,
-    )
-    expected = torch.tensor(
-        [
-            0.1033,
-            0.1476,
-            0.2784,
-            0.4835,
-            0.7271,
-            0.9327,
-            0.9794,
-            0.7389,
-            0.1736,
-            -0.5358,
-        ]
-    
-    )
-    assert torch.all(expected**2 - result**2 > 0)
 
 def test_calculate_relativistic_electron_wavelength():
     """Check function matches expected value from literature.
@@ -151,7 +121,6 @@ def test_2d_ctf_batch():
         voltage=[[[300, 300]]],
         spherical_aberration=[[[2.7, 2.7]]],
         amplitude_contrast=[[[0.1, 0.1]]],
-        b_factor=[[[0, 0]]],
         phase_shift=[[[0, 0]]],
         image_shape=(10,10),
         rfft=False,
@@ -170,7 +139,6 @@ def test_2d_ctf_astigmatism():
         voltage=300,
         spherical_aberration=2.7,
         amplitude_contrast=0.1,
-        b_factor=0,
         phase_shift=0,
         image_shape=(10,10),
         rfft=False,
@@ -202,22 +170,3 @@ def test_2d_ctf_astigmatism():
     assert torch.allclose(result[3, 0, :], EXPECTED_2D[0][0,:], atol=1e-4)
     assert torch.allclose(result[3, :, 0], EXPECTED_2D[1][:,0], atol=1e-4)
 
-def test_2d_ctf_bfactor():
-    result = calculate_ctf_2d(
-        defocus=1.5,
-        astigmatism=0.0,
-        astigmatism_angle=0,
-        pixel_size=8,
-        voltage=300,
-        spherical_aberration=2.7,
-        amplitude_contrast=0.1,
-        b_factor=100,
-        phase_shift=0,
-        image_shape=(10,10),
-        rfft=False,
-        fftshift=False,
-    )
-    expected = EXPECTED_2D[0]
-    assert result.shape == (10, 10)
-    # Powerspectrum should be smaller than expected, except at center
-    assert torch.all(expected[1:,1:]**2 - result[1:,1:]**2 > 0)
