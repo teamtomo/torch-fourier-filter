@@ -220,7 +220,7 @@ def calculate_ctf_2d(
     fft_freq_grid = fftfreq_grid(
         image_shape=image_shape,
         rfft=rfft,
-        fftshift=fftshift,
+        fftshift=False,
         norm=False,
         device=device,
     )
