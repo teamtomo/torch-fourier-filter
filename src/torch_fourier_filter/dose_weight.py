@@ -14,12 +14,22 @@ def critical_exposure(
     """
     Calculate the critical exposure using the Grant and Grigorieff 2015 formula.
 
-    Args:
-        fft_freq: The frequency grid of the Fourier transform.
+    Ne = a * fft_freq^b + c
+
+    Parameters
+    ----------
+    fft_freq: torch.Tensor
+        The frequency grid of the Fourier transform.
+    a: float
+        The a parameter for the critical exposure formula. Default is 0.245.
+    b: float
+        The b parameter for the critical exposure formula. Default is -1.665.
+    c: float
+        The c parameter for the critical exposure formula. Default is 2.81.
 
     Returns
     -------
-        The critical exposure for the given frequency grid
+        The critical exposure for the given frequency grid.
     """
     eps = 1e-10
     Ne = a * torch.pow(fft_freq.clamp(min=eps), b) + c
@@ -30,17 +40,154 @@ def critical_exposure_bfactor(fft_freq: torch.Tensor, bfactor: float) -> torch.T
     """
     Calculate the critical exposure using a user defined B-factor.
 
-    Args:
-        fft_freq: The frequency grid of the Fourier transform.
-        bfactor: The B-factor to use.
+    Parameters
+    ----------
+    fft_freq: torch.Tensor
+        The frequency grid of the Fourier transform.
+    bfactor: float
+        The B-factor to use.
 
     Returns
     -------
-        The critical exposure for the given frequency grid
+        The critical exposure for the given frequency grid.
     """
     eps = 1e-10
     Ne = 4 / (bfactor * fft_freq.clamp(min=eps) ** 2)
     return Ne
+
+
+def dose_weight_2d(
+    image_dft: torch.Tensor,  # shape (..., h, w)
+    image_shape: tuple[int, int],  # shape (h, w)
+    pixel_size: float,
+    dose: torch.Tensor | float,  # shape (..., ) or float
+    voltage: float = 300.0,
+    crit_exposure_bfactor: int | float = -1,
+    rfft: bool = True,
+    fftshift: bool = False,
+    a: float = 0.245,
+    b: float = -1.665,
+    c: float = 2.81,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    """
+    Apply dose weighting to an image or stack.
+
+    This function implements the dose weighting algorithm following Grant and
+    Grigorieff 2015, applying different weights to each frame based on cumulative
+    dose and then normalizing across frames.
+
+    Parameters
+    ----------
+    image_dft : torch.Tensor
+        Complex tensor containing imagesin Fourier space with shape
+        (..., h, w) for rfft=True or (..., h, w) for full fft.
+    image_shape : tuple[int, int]
+        The shape of the real space images (h, w).
+    pixel_size : float
+        The pixel size of the images, in Angstroms.
+    dose : torch.Tensor | float, optional
+        The dose, in e-/A^2.
+    voltage : float, optional
+        The acceleration voltage in kV. Affects damage correction for 100kV and 200kV.
+        Default is 300.0.
+    crit_exposure_bfactor : int | float, optional
+        The B factor for dose weighting based on critical exposure. If -1,
+        then use Grant and Grigorieff (2015) values. Default is -1.
+    rfft : bool, optional
+        Whether the input DFT is from a real FFT. Default is True.
+    fftshift : bool, optional
+        Whether the input DFT is fftshifted. Default is False.
+    a : float, optional
+        The a parameter for the critical exposure formula. Default is 0.245.
+    b : float, optional
+        The b parameter for the critical exposure formula. Default is -1.665.
+    c : float, optional
+        The c parameter for the critical exposure formula. Default is 2.81.
+    device : torch.device | None, optional
+        The device to use for the calculation. If None, infers device from movie_dft.
+        Default is None.
+
+    Returns
+    -------
+    torch.Tensor
+        The dose-weighted movie frames with the same shape as input.
+    """
+    # If dose is a tensor with more than 1 value,
+    # check it matches the ... batch dimensions in the image.
+    if isinstance(dose, torch.Tensor) and dose.numel() > 1 and image_dft.ndim > 2:
+        # image_dft shape: (..., h, w)
+        image_batch_shape = image_dft.shape[:-2]
+        dose_shape = dose.shape
+        if dose_shape != image_batch_shape:
+            raise ValueError(
+                f"dose tensor shape {dose_shape} "
+                f"does not match image batch dimensions {image_batch_shape}"
+            )
+        else:
+            dose = einops.rearrange(dose, "... -> ... 1 1")
+
+    # Determine device
+    if device is None:
+        device = image_dft.device
+
+    # Move movie_dft to specified device if needed
+    image_dft = image_dft.to(device)
+
+    # Apply voltage-dependent damage corrections (follows RELION)
+    if abs(voltage - 200) <= 2:
+        dose /= 0.8
+    elif abs(voltage - 100) <= 2:
+        dose /= 0.64
+
+    # Get frequency grid
+    fft_freq_px = fftfreq_grid(
+        image_shape=image_shape,
+        rfft=rfft,
+        fftshift=fftshift,
+        norm=True,
+        device=device,
+    )
+    fft_freq_px /= pixel_size  # Convert to Angstrom^-1
+
+    # Calculate critical exposure for each frequency
+    if crit_exposure_bfactor == -1:
+        Ne = critical_exposure(fft_freq=fft_freq_px, a=a, b=b, c=c)
+    elif crit_exposure_bfactor >= 0:
+        Ne = critical_exposure_bfactor(
+            fft_freq=fft_freq_px, bfactor=crit_exposure_bfactor
+        )
+    else:
+        raise ValueError("B-factor must be positive or -1.")
+
+    # Apply factor of 2 from Eq. 5 (factoring out 0.5)
+    Ne = Ne * 2
+
+    # Add small epsilon to prevent division by zero
+    eps = 1e-10
+    Ne = Ne.clamp(min=eps)
+
+    # Calculate weights for each frame at each frequency
+    # Reshape for broadcasting: dose (..., 1, 1) and Ne (1, h, w)
+    # Expand Ne to match the number of leading dimensions in dose/image_dft
+    n_leading = len(image_dft.shape) - 2  # number of ... dims
+    Ne_expanded = einops.rearrange(Ne, "h w -> " + " ".join(["1"] * n_leading) + " h w")
+    weights = torch.exp(-dose / Ne_expanded)  # Shape: (..., h, w)
+
+    # Apply weights to each image
+    weighted_images = image_dft * weights
+
+    # Calculate sum of squared weights for normalization (Eq. 9)
+    sum_weight_sq = einops.reduce(weights**2, "... h w -> h w", "sum")
+    sum_weight_sq = torch.sqrt(sum_weight_sq.clamp(min=eps))
+
+    # Normalize all frames by the sum of squared weights
+    sum_weight_sq_expanded = einops.rearrange(
+        sum_weight_sq, "h w -> " + " ".join(["1"] * n_leading) + " h w"
+    )
+    normalized_frames = weighted_images / sum_weight_sq_expanded
+
+    return normalized_frames
 
 
 def dose_weight_movie(
@@ -115,62 +262,24 @@ def dose_weight_movie(
 
     # Move movie_dft to specified device if needed
     movie_dft = movie_dft.to(device)
-
-    n_frames = movie_dft.shape[0]
-
     # Calculate doses for each frame (dose AFTER each frame)
-    frame_indices = torch.arange(n_frames, dtype=torch.float32, device=device)
+    frame_indices = torch.arange(movie_dft.shape[0], dtype=torch.float32, device=device)
     doses = pre_exposure + dose_per_frame * (frame_indices + 1)
 
-    # Apply voltage-dependent damage corrections (follows RELION)
-    if abs(voltage - 200) <= 2:
-        doses /= 0.8
-    elif abs(voltage - 100) <= 2:
-        doses /= 0.64
-
-    # Get frequency grid
-    fft_freq_px = fftfreq_grid(
+    normalized_frames = dose_weight_2d(
+        image_dft=movie_dft,
         image_shape=image_shape,
+        pixel_size=pixel_size,
+        dose=doses,
+        voltage=voltage,
+        crit_exposure_bfactor=crit_exposure_bfactor,
         rfft=rfft,
         fftshift=fftshift,
-        norm=True,
+        a=a,
+        b=b,
+        c=c,
         device=device,
     )
-    fft_freq_px /= pixel_size  # Convert to Angstrom^-1
-
-    # Calculate critical exposure for each frequency
-    if crit_exposure_bfactor == -1:
-        Ne = critical_exposure(fft_freq=fft_freq_px, a=a, b=b, c=c)
-    elif crit_exposure_bfactor >= 0:
-        Ne = critical_exposure_bfactor(
-            fft_freq=fft_freq_px, bfactor=crit_exposure_bfactor
-        )
-    else:
-        raise ValueError("B-factor must be positive or -1.")
-
-    # Apply factor of 2 from Eq. 5 (factoring out 0.5)
-    Ne = Ne * 2
-
-    # Add small epsilon to prevent division by zero
-    eps = 1e-10
-    Ne = Ne.clamp(min=eps)
-
-    # Calculate weights for each frame at each frequency
-    # Reshape for broadcasting: doses (n_frames, 1, 1) and Ne (1, h, w)
-    doses_expanded = einops.rearrange(doses, "n_frames -> n_frames 1 1")
-    Ne_expanded = einops.rearrange(Ne, "h w -> 1 h w")
-    weights = torch.exp(-doses_expanded / Ne_expanded)  # Shape: (n_frames, h, w)
-
-    # Apply weights to each frame
-    weighted_frames = movie_dft * weights
-
-    # Calculate sum of squared weights for normalization (Eq. 9)
-    sum_weight_sq = torch.sum(weights**2, dim=0)  # Shape: (h, w)
-    sum_weight_sq = torch.sqrt(sum_weight_sq.clamp(min=eps))
-
-    # Normalize all frames by the sum of squared weights
-    sum_weight_sq_expanded = einops.rearrange(sum_weight_sq, "h w -> 1 h w")
-    normalized_frames = weighted_frames / sum_weight_sq_expanded
 
     return normalized_frames
 

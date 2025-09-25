@@ -129,7 +129,7 @@ def test_dose_weight_movie():
 
     # Test device handling - movie on different device than specified
     if torch.cuda.is_available():
-        cuda_device = torch.device("cuda")
+        cuda_device = torch.device("cuda:0")
 
         # Create movie on CPU
         cpu_movie = torch.fft.rfft2(torch.rand((n_frames, *image_shape)))
