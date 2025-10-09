@@ -1,4 +1,19 @@
-"""Dose weighting functions for Fourier filtering."""
+"""Dose weighting functions for Fourier filtering.
+
+This module provides dose weighting implementations with different
+memory efficiency characteristics:
+
+1. `dose_weight_movie()` - Main function with optional memory-efficient processing
+2. `dose_weight_movie_memory_efficient_2d()` - Memory-efficient chunked processing
+3. `dose_weight_2d()` - Core dose weighting for individual frames/stacks
+
+Memory Usage Comparison:
+- Original: ~5 * n_frames * h * w * 8 bytes (all frames in memory)
+- Memory Efficient: ~2 * chunk_size * h * w * 8 bytes (chunked processing)
+
+For large movies that don't fit in memory, use `memory_efficient=True` in
+`dose_weight_movie()` or call `dose_weight_movie_memory_efficient_2d()` directly.
+"""
 
 import einops
 import torch
@@ -190,6 +205,169 @@ def dose_weight_2d(
     return normalized_frames
 
 
+def dose_weight_movie_memory_efficient_2d(
+    image_dft: torch.Tensor,
+    image_shape: tuple[int, int],
+    pixel_size: float,
+    dose: torch.Tensor,
+    voltage: float = 300.0,
+    crit_exposure_bfactor: int | float = -1,
+    rfft: bool = True,
+    fftshift: bool = False,
+    a: float = 0.245,
+    b: float = -1.665,
+    c: float = 2.81,
+    device: torch.device | None = None,
+    chunk_size: int = 100,
+) -> torch.Tensor:
+    """
+    Memory-efficient dose weighting for movies using chunked processing.
+
+    This function processes movies in chunks to avoid memory issues by calling
+    dose_weight_2d on chunks and handling normalization separately.
+
+    Parameters
+    ----------
+    image_dft : torch.Tensor
+        Complex tensor containing movie frames in Fourier space with shape
+        (n_frames, h, w) for rfft=True or (n_frames, h, w) for full fft.
+    image_shape : tuple[int, int]
+        The shape of the real space images (h, w).
+    pixel_size : float
+        The pixel size of the images, in Angstroms.
+    dose : torch.Tensor
+        Pre-calculated doses for each frame, in e-/A^2.
+    voltage : float, optional
+        The acceleration voltage in kV. Affects damage correction for 100kV and 200kV.
+        Default is 300.0.
+    crit_exposure_bfactor : int | float, optional
+        The B factor for dose weighting based on critical exposure. If -1,
+        then use Grant and Grigorieff (2015) values. Default is -1.
+    rfft : bool, optional
+        Whether the input DFT is from a real FFT. Default is True.
+    fftshift : bool, optional
+        Whether the input DFT is fftshifted. Default is False.
+    a : float, optional
+        The a parameter for the critical exposure formula. Default is 0.245.
+    b : float, optional
+        The b parameter for the critical exposure formula. Default is -1.665.
+    c : float, optional
+        The c parameter for the critical exposure formula. Default is 2.81.
+    device : torch.device | None, optional
+        The device to use for the calculation. If None, infers device from movie_dft.
+        Default is None.
+    chunk_size : int, optional
+        The number of frames to process in each chunk. Default is 100.
+
+    Returns
+    -------
+    torch.Tensor
+        The dose-weighted movie frames with the same shape as input.
+    """
+    # If dose is a tensor with more than 1 value,
+    # check it matches the ... batch dimensions in the image.
+    if isinstance(dose, torch.Tensor) and dose.numel() > 1 and image_dft.ndim > 2:
+        # image_dft shape: (..., h, w)
+        image_batch_shape = image_dft.shape[:-2]
+        dose_shape = dose.shape
+        if dose_shape != image_batch_shape:
+            raise ValueError(
+                f"dose tensor shape {dose_shape} "
+                f"does not match image batch dimensions {image_batch_shape}"
+            )
+        else:
+            dose = einops.rearrange(dose, "... -> ... 1 1")
+
+    # Determine device
+    if device is None:
+        device = image_dft.device
+
+    # Move image_dft to specified device if needed
+    image_dft = image_dft.to(device)
+
+    # Apply voltage-dependent damage corrections (follows RELION)
+    if abs(voltage - 200) <= 2:
+        dose /= 0.8
+    elif abs(voltage - 100) <= 2:
+        dose /= 0.64
+
+    n_frames = image_dft.shape[0]
+
+    # Get frequency grid
+    fft_freq_px = fftfreq_grid(
+        image_shape=image_shape,
+        rfft=rfft,
+        fftshift=fftshift,
+        norm=True,
+        device=device,
+    )
+    fft_freq_px /= pixel_size  # Convert to Angstrom^-1
+
+    # Calculate critical exposure for each frequency
+    if crit_exposure_bfactor == -1:
+        Ne = critical_exposure(fft_freq=fft_freq_px, a=a, b=b, c=c)
+    elif crit_exposure_bfactor >= 0:
+        Ne = critical_exposure_bfactor(
+            fft_freq=fft_freq_px, bfactor=crit_exposure_bfactor
+        )
+    else:
+        raise ValueError("B-factor must be positive or -1.")
+
+    # Apply factor of 2 from Eq. 5 (factoring out 0.5)
+    Ne = Ne * 2
+
+    # Add small epsilon to prevent division by zero
+    eps = 1e-10
+    Ne = Ne.clamp(min=eps)
+
+    # FIRST PASS: Compute normalization factors by accumulating weight sums
+    sum_weight_sq = torch.zeros_like(Ne)
+
+    for start_idx in range(0, n_frames, chunk_size):
+        end_idx = min(start_idx + chunk_size, n_frames)
+        chunk_doses = dose[start_idx:end_idx]
+
+        # Calculate weights for this chunk
+        Ne_expanded = einops.rearrange(Ne, "h w -> 1 h w")
+        weights = torch.exp(-chunk_doses / Ne_expanded)  # (chunk_size, h, w)
+
+        # Accumulate sum of squared weights
+        sum_weight_sq += einops.reduce(weights**2, "... h w -> h w", "sum")
+
+        # Clear chunk from memory
+        del weights, chunk_doses
+
+    # Compute normalization factor
+    sum_weight_sq = torch.sqrt(sum_weight_sq.clamp(min=eps))
+
+    # SECOND PASS: Apply weighting and normalization in chunks
+    result = torch.zeros_like(image_dft)
+
+    for start_idx in range(0, n_frames, chunk_size):
+        end_idx = min(start_idx + chunk_size, n_frames)
+        chunk_doses = dose[start_idx:end_idx]
+        chunk_movie = image_dft[start_idx:end_idx]
+
+        # Calculate weights for this chunk
+        Ne_expanded = einops.rearrange(Ne, "h w -> 1 h w")
+        weights = torch.exp(-chunk_doses / Ne_expanded)  # (chunk_size, h, w)
+
+        # Apply weights to chunk
+        weighted_chunk = chunk_movie * weights
+
+        # Normalize by sum of squared weights
+        sum_weight_sq_expanded = einops.rearrange(sum_weight_sq, "h w -> 1 h w")
+        normalized_chunk = weighted_chunk / sum_weight_sq_expanded
+
+        # Store result
+        result[start_idx:end_idx] = normalized_chunk
+
+        # Clear chunk from memory
+        del weights, weighted_chunk, normalized_chunk, chunk_doses
+
+    return result
+
+
 def dose_weight_movie(
     movie_dft: torch.Tensor,
     image_shape: tuple[int, int],
@@ -204,6 +382,8 @@ def dose_weight_movie(
     b: float = -1.665,
     c: float = 2.81,
     device: torch.device | None = None,
+    memory_efficient: bool = False,
+    chunk_size: int = 10,
 ) -> torch.Tensor:
     """
     Apply per-frame dose weighting to a movie in Fourier space.
@@ -244,6 +424,11 @@ def dose_weight_movie(
     device : torch.device | None, optional
         The device to use for the calculation. If None, infers device from movie_dft.
         Default is None.
+    memory_efficient : bool, optional
+        Whether to use memory-efficient chunked processing. Default is False.
+    chunk_size : int, optional
+        The number of frames to process in each chunk for memory-efficient mode.
+        Default is 100.
 
     Returns
     -------
@@ -266,22 +451,39 @@ def dose_weight_movie(
     frame_indices = torch.arange(movie_dft.shape[0], dtype=torch.float32, device=device)
     doses = pre_exposure + dose_per_frame * (frame_indices + 1)
 
-    normalized_frames = dose_weight_2d(
-        image_dft=movie_dft,
-        image_shape=image_shape,
-        pixel_size=pixel_size,
-        dose=doses,
-        voltage=voltage,
-        crit_exposure_bfactor=crit_exposure_bfactor,
-        rfft=rfft,
-        fftshift=fftshift,
-        a=a,
-        b=b,
-        c=c,
-        device=device,
-    )
-
-    return normalized_frames
+    if memory_efficient:
+        # Use memory-efficient chunked processing
+        return dose_weight_movie_memory_efficient_2d(
+            image_dft=movie_dft,
+            image_shape=image_shape,
+            pixel_size=pixel_size,
+            dose=doses,
+            voltage=voltage,
+            crit_exposure_bfactor=crit_exposure_bfactor,
+            rfft=rfft,
+            fftshift=fftshift,
+            a=a,
+            b=b,
+            c=c,
+            device=device,
+            chunk_size=chunk_size,
+        )
+    else:
+        # Use original method
+        return dose_weight_2d(
+            image_dft=movie_dft,
+            image_shape=image_shape,
+            pixel_size=pixel_size,
+            dose=doses,
+            voltage=voltage,
+            crit_exposure_bfactor=crit_exposure_bfactor,
+            rfft=rfft,
+            fftshift=fftshift,
+            a=a,
+            b=b,
+            c=c,
+            device=device,
+        )
 
 
 def cumulative_dose_filter_3d(

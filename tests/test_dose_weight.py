@@ -215,3 +215,97 @@ def test_cumulative_dose_filter_3d():
         assert torch.all(dose_filter >= 0) and torch.all(
             dose_filter <= 1
         ), f"Dose filter values out of range for bfac={bfac}"
+
+
+def test_memory_efficient_consistency():
+    """Test that memory-efficient method produces same results as original method."""
+    # Test parameters
+    n_frames = 10
+    image_shape = (32, 32)
+    pixel_size = 1.0
+    pre_exposure = 0.0
+    dose_per_frame = 1.0
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Create a test movie in Fourier space
+    real_frames = torch.rand((n_frames, *image_shape), device=device)
+    movie_dft = torch.fft.rfft2(real_frames)
+
+    # Test with original method
+    result_original = dose_weight_movie(
+        movie_dft=movie_dft,
+        image_shape=image_shape,
+        pixel_size=pixel_size,
+        pre_exposure=pre_exposure,
+        dose_per_frame=dose_per_frame,
+        memory_efficient=False,
+        rfft=True,
+        device=device,
+    )
+
+    # Test with memory-efficient method
+    result_memory_efficient = dose_weight_movie(
+        movie_dft=movie_dft,
+        image_shape=image_shape,
+        pixel_size=pixel_size,
+        pre_exposure=pre_exposure,
+        dose_per_frame=dose_per_frame,
+        memory_efficient=True,
+        chunk_size=3,  # Use small chunk size to test chunking
+        rfft=True,
+        device=device,
+    )
+
+    # Results should be identical
+    assert torch.allclose(
+        result_original, result_memory_efficient, atol=1e-6
+    ), "Memory-efficient method produces different results than original method"
+
+    # Test with different voltage settings
+    for voltage in [100.0, 200.0, 300.0]:
+        result_orig_voltage = dose_weight_movie(
+            movie_dft=movie_dft,
+            image_shape=image_shape,
+            pixel_size=pixel_size,
+            pre_exposure=pre_exposure,
+            dose_per_frame=dose_per_frame,
+            voltage=voltage,
+            memory_efficient=False,
+            rfft=True,
+            device=device,
+        )
+
+        result_mem_voltage = dose_weight_movie(
+            movie_dft=movie_dft,
+            image_shape=image_shape,
+            pixel_size=pixel_size,
+            pre_exposure=pre_exposure,
+            dose_per_frame=dose_per_frame,
+            voltage=voltage,
+            memory_efficient=True,
+            chunk_size=3,
+            rfft=True,
+            device=device,
+        )
+
+        assert torch.allclose(
+            result_orig_voltage, result_mem_voltage, atol=1e-6
+        ), f"Memory-efficient method differs from original for voltage={voltage}"
+
+    # Test with different chunk sizes to ensure chunking works correctly
+    for chunk_size in [1, 2, 5, 8]:
+        result_chunked = dose_weight_movie(
+            movie_dft=movie_dft,
+            image_shape=image_shape,
+            pixel_size=pixel_size,
+            pre_exposure=pre_exposure,
+            dose_per_frame=dose_per_frame,
+            memory_efficient=True,
+            chunk_size=chunk_size,
+            rfft=True,
+            device=device,
+        )
+
+        assert torch.allclose(
+            result_original, result_chunked, atol=1e-6
+        ), f"Memory-efficient method differs with chunk_size={chunk_size}"
