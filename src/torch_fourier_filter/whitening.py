@@ -234,7 +234,7 @@ def whitening_filter(
     last_freq = (len(dim) ** 0.5) / 2
 
     # Generate a 1D frequency grid
-    frequency_1d = torch.linspace(0, last_freq, steps=len(whitening_filter_1d))
+    frequency_1d = torch.linspace(0, last_freq, steps=len(whitening_filter_1d), device=image_dft.device)
 
     # Create a mask for frequencies above the max frequency, if specified
     if max_freq is not None:

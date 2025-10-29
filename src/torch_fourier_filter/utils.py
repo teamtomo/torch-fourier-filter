@@ -212,7 +212,7 @@ def curve_1dim_to_ndim(
         values_1d = values_1d.unsqueeze(0)
         _is_batched = False
 
-    interpn_values = torch.empty(values_1d.shape[0], *frequency_grid.shape)
+    interpn_values = torch.empty(values_1d.shape[0], *frequency_grid.shape, device=values_1d.device)
 
     for i in range(values_1d.shape[0]):
         interpn_values[i] = torch_interp(
