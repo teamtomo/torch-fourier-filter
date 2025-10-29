@@ -362,9 +362,6 @@ def dose_weight_movie_memory_efficient_2d(
         # Store result
         result[start_idx:end_idx] = normalized_chunk
 
-        # Clear chunk from memory
-        del weights, weighted_chunk, normalized_chunk, chunk_doses
-
     return result
 
 
