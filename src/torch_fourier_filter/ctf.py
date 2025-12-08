@@ -188,6 +188,244 @@ def calculate_ctf_2d(
     ctf : torch.Tensor
         The Contrast Transfer Function for the given parameters.
     """
+    defocus, voltage, spherical_aberration, amplitude_contrast, phase_shift, fft_freq_grid_squared = _setup_ctf_2d(
+        defocus=defocus,
+        astigmatism=astigmatism,
+        astigmatism_angle=astigmatism_angle,
+        voltage=voltage,
+        spherical_aberration=spherical_aberration,
+        amplitude_contrast=amplitude_contrast,
+        phase_shift=phase_shift,
+        pixel_size=pixel_size,
+        image_shape=image_shape,
+        rfft=rfft,
+        fftshift=fftshift,
+    )
+
+    # calculate ctf
+    ctf = -torch.sin(
+        calculate_total_phase_shift(
+            defocus_um=defocus,
+            voltage_kv=voltage,
+            spherical_aberration_mm=spherical_aberration,
+            phase_shift_degrees=phase_shift,
+            amplitude_contrast_fraction=amplitude_contrast,
+            fftfreq_grid_angstrom_squared=fft_freq_grid_squared,
+        )
+    )
+
+    return ctf
+
+def calculate_ctfp_and_ctfq_2d(
+    defocus: float | torch.Tensor,
+    astigmatism: float | torch.Tensor,
+    astigmatism_angle: float | torch.Tensor,
+    voltage: float | torch.Tensor,
+    spherical_aberration: float | torch.Tensor,
+    amplitude_contrast: float | torch.Tensor,
+    phase_shift: float | torch.Tensor,
+    pixel_size: float | torch.Tensor,
+    image_shape: tuple[int, int],
+    rfft: bool,
+    fftshift: bool,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Calculate CTFP and CTFQ for a 2D image.
+
+    Parameters
+    ----------
+    defocus : float | torch.Tensor
+        Defocus in micrometers, positive is underfocused.
+        `(defocus_u + defocus_v) / 2`
+    astigmatism : float | torch.Tensor
+        Amount of astigmatism in micrometers.
+        `(defocus_u - defocus_v) / 2`
+    astigmatism_angle : float | torch.Tensor
+        Angle of astigmatism in degrees. 0 places `defocus_u` along the y-axis.
+    voltage : float | torch.Tensor
+        Acceleration voltage in kilovolts (kV).
+    spherical_aberration : float | torch.Tensor
+        Spherical aberration in millimeters (mm).
+    amplitude_contrast : float | torch.Tensor
+        Fraction of amplitude contrast (value in range [0, 1]).
+    phase_shift : float | torch.Tensor
+        Angle of phase shift applied to CTF in degrees.
+    pixel_size : float | torch.Tensor
+        Pixel size in Angströms per pixel (Å px⁻¹).
+    image_shape : tuple[int, int]
+        Shape of 2D images onto which CTF will be applied.
+    rfft : bool
+        Generate the CTF containing only the non-redundant half transform from a rfft.
+    fftshift : bool
+        Whether to apply fftshift on the resulting CTF images.
+
+    Returns
+    -------
+    ctfp : torch.Tensor
+        The P component of the CTF for the given parameters (complex tensor).
+    ctfq : torch.Tensor
+        The Q component of the CTF for the given parameters (complex tensor).
+    """
+    defocus, voltage, spherical_aberration, amplitude_contrast, phase_shift, fft_freq_grid_squared = _setup_ctf_2d(
+        defocus=defocus,
+        astigmatism=astigmatism,
+        astigmatism_angle=astigmatism_angle,
+        voltage=voltage,
+        spherical_aberration=spherical_aberration,
+        amplitude_contrast=amplitude_contrast,
+        phase_shift=phase_shift,
+        pixel_size=pixel_size,
+        image_shape=image_shape,
+        rfft=rfft,
+        fftshift=fftshift,
+    )
+
+    total_phase_shift = calculate_total_phase_shift(
+        defocus_um=defocus,
+        voltage_kv=voltage,
+        spherical_aberration_mm=spherical_aberration,
+        phase_shift_degrees=phase_shift,
+        amplitude_contrast_fraction=amplitude_contrast,
+        fftfreq_grid_angstrom_squared=fft_freq_grid_squared,
+    )
+
+    # calculate ctf
+    # ctfp: real = -sin, imag = +cos
+    ctfp = torch.complex(
+        -torch.sin(total_phase_shift),
+        torch.cos(total_phase_shift)
+    )
+
+    # ctfq: real = -sin, imag = -cos
+    ctfq = torch.complex(
+        -torch.sin(total_phase_shift),
+        -torch.cos(total_phase_shift)
+    )
+    return ctfp, ctfq
+
+def calculate_ctf_1d(
+    defocus: float | torch.Tensor,
+    voltage: float | torch.Tensor,
+    spherical_aberration: float | torch.Tensor,
+    amplitude_contrast: float | torch.Tensor,
+    phase_shift: float | torch.Tensor,
+    pixel_size: float | torch.Tensor,
+    n_samples: int,
+    oversampling_factor: int,
+) -> torch.Tensor:
+    """Calculate the Contrast Transfer Function (CTF) for a 1D signal.
+
+    Parameters
+    ----------
+    defocus : float | torch.Tensor
+        Defocus in micrometers, positive is underfocused.
+    voltage : float | torch.Tensor
+        Acceleration voltage in kilovolts (kV).
+    spherical_aberration : float | torch.Tensor
+        Spherical aberration in millimeters (mm).
+    amplitude_contrast : float | torch.Tensor
+        Fraction of amplitude contrast (value in range [0, 1]).
+    phase_shift : float | torch.Tensor
+        Angle of phase shift applied to CTF in degrees.
+    pixel_size : float | torch.Tensor
+        Pixel size in Angströms per pixel (Å px⁻¹).
+    n_samples : int
+        Number of samples in CTF.
+    oversampling_factor : int
+        Factor by which to oversample the CTF.
+
+    Returns
+    -------
+    ctf : torch.Tensor
+        The Contrast Transfer Function for the given parameters.
+    """
+    defocus, voltage, spherical_aberration, amplitude_contrast, phase_shift, fftfreq_grid_squared, oversampling_factor = _setup_ctf_1d(
+        defocus=defocus,
+        voltage=voltage,
+        spherical_aberration=spherical_aberration,
+        amplitude_contrast=amplitude_contrast,
+        phase_shift=phase_shift,
+        pixel_size=pixel_size,
+        n_samples=n_samples,
+        oversampling_factor=oversampling_factor,
+    )
+
+    # calculate ctf
+    ctf = -torch.sin(
+        calculate_total_phase_shift(
+            defocus_um=defocus,
+            voltage_kv=voltage,
+            spherical_aberration_mm=spherical_aberration,
+            phase_shift_degrees=phase_shift,
+            amplitude_contrast_fraction=amplitude_contrast,
+            fftfreq_grid_angstrom_squared=fftfreq_grid_squared,
+        )
+    )
+
+    if oversampling_factor > 1:
+        # reduce oversampling
+        ctf = einops.reduce(
+            ctf, "... os k -> ... k", reduction="mean"
+        )  # oversampling reduction
+    return ctf
+
+
+def _setup_ctf_2d(
+    defocus: float | torch.Tensor,
+    astigmatism: float | torch.Tensor,
+    astigmatism_angle: float | torch.Tensor,
+    voltage: float | torch.Tensor,
+    spherical_aberration: float | torch.Tensor,
+    amplitude_contrast: float | torch.Tensor,
+    phase_shift: float | torch.Tensor,
+    pixel_size: float | torch.Tensor,
+    image_shape: tuple[int, int],
+    rfft: bool,
+    fftshift: bool,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Setup parameters for 2D CTF calculation.
+
+    Parameters
+    ----------
+    defocus : float | torch.Tensor
+        Defocus in micrometers, positive is underfocused.
+        `(defocus_u + defocus_v) / 2`
+    astigmatism : float | torch.Tensor
+        Amount of astigmatism in micrometers.
+        `(defocus_u - defocus_v) / 2`
+    astigmatism_angle : float | torch.Tensor
+        Angle of astigmatism in degrees. 0 places `defocus_u` along the y-axis.
+    voltage : float | torch.Tensor
+        Acceleration voltage in kilovolts (kV).
+    spherical_aberration : float | torch.Tensor
+        Spherical aberration in millimeters (mm).
+    amplitude_contrast : float | torch.Tensor
+        Fraction of amplitude contrast (value in range [0, 1]).
+    phase_shift : float | torch.Tensor
+        Angle of phase shift applied to CTF in degrees.
+    pixel_size : float | torch.Tensor
+        Pixel size in Angströms per pixel (Å px⁻¹).
+    image_shape : tuple[int, int]
+        Shape of 2D images onto which CTF will be applied.
+    rfft : bool
+        Generate the CTF containing only the non-redundant half transform from a rfft.
+    fftshift : bool
+        Whether to apply fftshift on the resulting CTF images.
+
+    Returns
+    -------
+    defocus : torch.Tensor
+        Defocus with astigmatism adjustments applied.
+    voltage : torch.Tensor
+        Acceleration voltage tensor.
+    spherical_aberration : torch.Tensor
+        Spherical aberration tensor.
+    amplitude_contrast : torch.Tensor
+        Amplitude contrast tensor.
+    phase_shift : torch.Tensor
+        Phase shift tensor.
+    fft_freq_grid_squared : torch.Tensor
+        Squared frequency grid in Angstroms^-2.
+    """
     if isinstance(defocus, torch.Tensor):
         device = defocus.device
     else:
@@ -238,7 +476,7 @@ def calculate_ctf_2d(
     astigmatism = einops.rearrange(astigmatism, "... -> ... 1")
     # Multiply with the square root of astigmatism so to get the right amplitude after squaring later
     astigmatism_vector = torch.sqrt(astigmatism) * unit_astigmatism_vector_yx
-    # Calculate unitvectors from the frequency grids  
+    # Calculate unitvectors from the frequency grids
     # Reuse already computed fft_freq_grid_squared to avoid redundant pow operations
     fft_freq_grid_norm = torch.sqrt(
         einops.rearrange(fft_freq_grid_squared, "... -> ... 1") + torch.finfo(torch.float32).eps
@@ -255,22 +493,11 @@ def calculate_ctf_2d(
         ** 2
         * 2
     )
-    # calculate ctf
-    ctf = -torch.sin(
-        calculate_total_phase_shift(
-            defocus_um=defocus,
-            voltage_kv=voltage,
-            spherical_aberration_mm=spherical_aberration,
-            phase_shift_degrees=phase_shift,
-            amplitude_contrast_fraction=amplitude_contrast,
-            fftfreq_grid_angstrom_squared=fft_freq_grid_squared,
-        )
-    )
 
-    return ctf
+    return defocus, voltage, spherical_aberration, amplitude_contrast, phase_shift, fft_freq_grid_squared
 
 
-def calculate_ctf_1d(
+def _setup_ctf_1d(
     defocus: float | torch.Tensor,
     voltage: float | torch.Tensor,
     spherical_aberration: float | torch.Tensor,
@@ -279,8 +506,8 @@ def calculate_ctf_1d(
     pixel_size: float | torch.Tensor,
     n_samples: int,
     oversampling_factor: int,
-) -> torch.Tensor:
-    """Calculate the Contrast Transfer Function (CTF) for a 1D signal.
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+    """Setup parameters for 1D CTF calculation.
 
     Parameters
     ----------
@@ -303,8 +530,20 @@ def calculate_ctf_1d(
 
     Returns
     -------
-    ctf : torch.Tensor
-        The Contrast Transfer Function for the given parameters.
+    defocus : torch.Tensor
+        Defocus tensor.
+    voltage : torch.Tensor
+        Acceleration voltage tensor.
+    spherical_aberration : torch.Tensor
+        Spherical aberration tensor.
+    amplitude_contrast : torch.Tensor
+        Amplitude contrast tensor.
+    phase_shift : torch.Tensor
+        Phase shift tensor.
+    fftfreq_grid_squared : torch.Tensor
+        Squared frequency grid in Angstroms^-2.
+    oversampling_factor : int
+        Oversampling factor for post-processing.
     """
     if isinstance(defocus, torch.Tensor):
         device = defocus.device
@@ -350,22 +589,6 @@ def calculate_ctf_1d(
     amplitude_contrast = einops.rearrange(amplitude_contrast, expansion_string)
 
     fftfreq_grid = fftfreq_grid / pixel_size
+    fftfreq_grid_squared = fftfreq_grid**2
 
-    # calculate ctf
-    ctf = -torch.sin(
-        calculate_total_phase_shift(
-            defocus_um=defocus,
-            voltage_kv=voltage,
-            spherical_aberration_mm=spherical_aberration,
-            phase_shift_degrees=phase_shift,
-            amplitude_contrast_fraction=amplitude_contrast,
-            fftfreq_grid_angstrom_squared=fftfreq_grid**2,
-        )
-    )
-
-    if oversampling_factor > 1:
-        # reduce oversampling
-        ctf = einops.reduce(
-            ctf, "... os k -> ... k", reduction="mean"
-        )  # oversampling reduction
-    return ctf
+    return defocus, voltage, spherical_aberration, amplitude_contrast, phase_shift, fftfreq_grid_squared, oversampling_factor
