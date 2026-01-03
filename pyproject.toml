@@ -39,6 +39,7 @@ dependencies = [
     "torch_grid_utils",
     "starfile",
     "scipy",
+    "torch-ctf",
 ]
 
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies
