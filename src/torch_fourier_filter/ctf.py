@@ -1,9 +1,29 @@
 """CTF module for Fourier filtering."""
 
-import einops
+import warnings
+
 import torch
-from scipy import constants as C
-from torch_grid_utils.fftfreq_grid import fftfreq_grid
+from torch_ctf import (
+    calculate_additional_phase_shift as _calc_add_phase_shift,
+)
+from torch_ctf import (
+    calculate_amplitude_contrast_equivalent_phase_shift as _calc_amp_contrast_phase_shift,  # noqa: E501
+)
+from torch_ctf import (
+    calculate_ctf_1d as _calc_ctf_1d,
+)
+from torch_ctf import (
+    calculate_ctf_2d as _calc_ctf_2d,
+)
+from torch_ctf import (
+    calculate_defocus_phase_aberration as _calc_defocus_phase_aberration,
+)
+from torch_ctf import (
+    calculate_relativistic_electron_wavelength as _calc_relativistic_wavelength,
+)
+from torch_ctf import (
+    calculate_total_phase_shift as _calc_total_phase_shift,
+)
 
 
 def calculate_relativistic_electron_wavelength(
@@ -27,16 +47,13 @@ def calculate_relativistic_electron_wavelength(
     wavelength : float | torch.Tensor
         Relativistic wavelength of the electron in meters.
     """
-    h = C.Planck
-    c = C.speed_of_light
-    m0 = C.electron_mass
-    e = C.elementary_charge
-    V = torch.as_tensor(energy, dtype=torch.float)
-    eV = e * V
-
-    numerator = h * c
-    denominator = torch.sqrt(eV * (2 * m0 * c**2 + eV))
-    return numerator / denominator
+    warnings.warn(
+        "This function is deprecated and will be removed in a future version. "
+        "Please use torch_ctf.calculate_relativistic_electron_wavelength instead.",
+        FutureWarning,
+        stacklevel=2,
+    )
+    return _calc_relativistic_wavelength(energy)
 
 
 def calculate_defocus_phase_aberration(
@@ -63,37 +80,67 @@ def calculate_defocus_phase_aberration(
     phase_aberration : torch.Tensor
         The phase aberration for the given parameters.
     """
-
-    # Unit conversions
-    defocus = defocus_um * 1e4  # micrometers -> angstroms
-    voltage = voltage_kv * 1e3  # kV -> V
-    spherical_aberration = spherical_aberration_mm * 1e7  # mm -> angstroms
-
-    # derived quantities used in CTF calculation
-    _lambda = (
-        calculate_relativistic_electron_wavelength(voltage) * 1e10
-    )  # meters -> angstroms
-
-    k1 = -C.pi * _lambda
-    k2 = C.pi / 2 * spherical_aberration * _lambda**3
-    return (
-        k1 * fftfreq_grid_angstrom_squared * defocus
-        + k2 * fftfreq_grid_angstrom_squared**2
+    warnings.warn(
+        "This function is deprecated and will be removed in a future version. "
+        "Please use torch_ctf.calculate_defocus_phase_aberration instead.",
+        FutureWarning,
+        stacklevel=2,
+    )
+    return _calc_defocus_phase_aberration(
+        defocus_um,
+        voltage_kv,
+        spherical_aberration_mm,
+        fftfreq_grid_angstrom_squared,
     )
 
 
 def calculate_additional_phase_shift(
     phase_shift_degrees: torch.Tensor,
 ) -> torch.Tensor:
-    return torch.deg2rad(phase_shift_degrees)
+    """Calculate additional phase shift from degrees to radians.
+
+    Parameters
+    ----------
+    phase_shift_degrees : torch.Tensor
+        Phase shift in degrees.
+
+    Returns
+    -------
+    phase_shift_radians : torch.Tensor
+        Phase shift in radians.
+    """
+    warnings.warn(
+        "This function is deprecated and will be removed in a future version. "
+        "Please use torch_ctf.calculate_additional_phase_shift instead.",
+        FutureWarning,
+        stacklevel=2,
+    )
+    return _calc_add_phase_shift(phase_shift_degrees)
 
 
 def calculate_amplitude_contrast_equivalent_phase_shift(
     amplitude_contrast_fraction: torch.Tensor,
 ) -> torch.Tensor:
-    return torch.arctan(
-        amplitude_contrast_fraction / torch.sqrt(1 - amplitude_contrast_fraction**2)
+    """Calculate the phase shift equivalent to amplitude contrast.
+
+    Parameters
+    ----------
+    amplitude_contrast_fraction : torch.Tensor
+        Amplitude contrast as a fraction (0 to 1).
+
+    Returns
+    -------
+    phase_shift : torch.Tensor
+        Phase shift equivalent to the given amplitude contrast.
+    """
+    warnings.warn(
+        "This function is deprecated and will be removed in a future version. "
+        "Please use torch_ctf.calculate_amplitude_contrast_equivalent_phase_shift "
+        "instead.",
+        FutureWarning,
+        stacklevel=2,
     )
+    return _calc_amp_contrast_phase_shift(amplitude_contrast_fraction)
 
 
 def calculate_total_phase_shift(
@@ -126,17 +173,20 @@ def calculate_total_phase_shift(
     total_phase_shift : torch.Tensor
         The total phase shift for the given parameters.
     """
-    phase_aberration = calculate_defocus_phase_aberration(
-        defocus_um, voltage_kv, spherical_aberration_mm, fftfreq_grid_angstrom_squared
+    warnings.warn(
+        "This function is deprecated and will be removed in a future version. "
+        "Please use torch_ctf.calculate_total_phase_shift instead.",
+        FutureWarning,
+        stacklevel=2,
     )
-
-    additional_phase_shift = calculate_additional_phase_shift(phase_shift_degrees)
-
-    amplitude_contrast_phase_shift = (
-        calculate_amplitude_contrast_equivalent_phase_shift(amplitude_contrast_fraction)
+    return _calc_total_phase_shift(
+        defocus_um,
+        voltage_kv,
+        spherical_aberration_mm,
+        phase_shift_degrees,
+        amplitude_contrast_fraction,
+        fftfreq_grid_angstrom_squared,
     )
-
-    return phase_aberration - additional_phase_shift - amplitude_contrast_phase_shift
 
 
 def calculate_ctf_2d(
@@ -188,86 +238,25 @@ def calculate_ctf_2d(
     ctf : torch.Tensor
         The Contrast Transfer Function for the given parameters.
     """
-    if isinstance(defocus, torch.Tensor):
-        device = defocus.device
-    else:
-        device = torch.device("cpu")
-
-    # to torch.Tensor
-    defocus = torch.as_tensor(defocus, dtype=torch.float, device=device)
-    astigmatism = torch.as_tensor(astigmatism, dtype=torch.float, device=device)
-    astigmatism_angle = torch.as_tensor(
-        astigmatism_angle, dtype=torch.float, device=device
+    warnings.warn(
+        "This function is deprecated and will be removed in a future version. "
+        "Please use torch_ctf.calculate_ctf_2d instead.",
+        FutureWarning,
+        stacklevel=2,
     )
-    pixel_size = torch.as_tensor(pixel_size, dtype=torch.float, device=device)
-    voltage = torch.as_tensor(voltage, dtype=torch.float, device=device)
-    spherical_aberration = torch.as_tensor(
-        spherical_aberration, dtype=torch.float, device=device
-    )
-    amplitude_contrast = torch.as_tensor(
-        amplitude_contrast, dtype=torch.float, device=device
-    )
-    phase_shift = torch.as_tensor(phase_shift, dtype=torch.float, device=device)
-    image_shape = torch.as_tensor(image_shape, dtype=torch.int, device=device)
-
-    defocus = einops.rearrange(defocus, "... -> ... 1 1")
-    voltage = einops.rearrange(voltage, "... -> ... 1 1")
-    spherical_aberration = einops.rearrange(spherical_aberration, "... -> ... 1 1")
-    amplitude_contrast = einops.rearrange(amplitude_contrast, "... -> ... 1 1")
-    phase_shift = einops.rearrange(phase_shift, "... -> ... 1 1")
-
-    # construct 2D frequency grids and rescale cycles / px -> cycles / Å
-    fft_freq_grid = fftfreq_grid(
+    return _calc_ctf_2d(
+        defocus=defocus,
+        astigmatism=astigmatism,
+        astigmatism_angle=astigmatism_angle,
+        voltage=voltage,
+        spherical_aberration=spherical_aberration,
+        amplitude_contrast=amplitude_contrast,
+        phase_shift=phase_shift,
+        pixel_size=pixel_size,
         image_shape=image_shape,
         rfft=rfft,
         fftshift=fftshift,
-        norm=False,
-        device=device,
     )
-    fft_freq_grid = fft_freq_grid / einops.rearrange(pixel_size, "... -> ... 1 1 1")
-    fft_freq_grid_squared = einops.reduce(
-        fft_freq_grid**2, "... f->...", reduction="sum"
-    )
-
-    # Calculate the astigmatism vector
-    sin_theta = torch.sin(torch.deg2rad(astigmatism_angle))
-    cos_theta = torch.cos(torch.deg2rad(astigmatism_angle))
-    unit_astigmatism_vector_yx = einops.rearrange(
-        [sin_theta, cos_theta], "yx ... -> ... yx"
-    )
-    astigmatism = einops.rearrange(astigmatism, "... -> ... 1")
-    # Multiply with the square root of astigmatism so to get the right amplitude after squaring later
-    astigmatism_vector = torch.sqrt(astigmatism) * unit_astigmatism_vector_yx
-    # Calculate unitvectors from the frequency grids  
-    # Reuse already computed fft_freq_grid_squared to avoid redundant pow operations
-    fft_freq_grid_norm = torch.sqrt(
-        einops.rearrange(fft_freq_grid_squared, "... -> ... 1") + torch.finfo(torch.float32).eps
-    )
-    direction_unitvector = fft_freq_grid / fft_freq_grid_norm
-    # Subtract the astigmatism from the defocus
-    defocus -= einops.rearrange(astigmatism, "... -> ... 1")
-    # Add the squared dotproduct between the direction unitvector and the astigmatism vector
-    defocus = (
-        defocus
-        + einops.einsum(
-            direction_unitvector, astigmatism_vector, "... h w f, ... f -> ... h w"
-        )
-        ** 2
-        * 2
-    )
-    # calculate ctf
-    ctf = -torch.sin(
-        calculate_total_phase_shift(
-            defocus_um=defocus,
-            voltage_kv=voltage,
-            spherical_aberration_mm=spherical_aberration,
-            phase_shift_degrees=phase_shift,
-            amplitude_contrast_fraction=amplitude_contrast,
-            fftfreq_grid_angstrom_squared=fft_freq_grid_squared,
-        )
-    )
-
-    return ctf
 
 
 def calculate_ctf_1d(
@@ -306,66 +295,19 @@ def calculate_ctf_1d(
     ctf : torch.Tensor
         The Contrast Transfer Function for the given parameters.
     """
-    if isinstance(defocus, torch.Tensor):
-        device = defocus.device
-    else:
-        device = torch.device("cpu")
-
-    # to torch.Tensor
-    defocus = torch.as_tensor(defocus, dtype=torch.float, device=device)
-    voltage = torch.as_tensor(voltage, dtype=torch.float, device=device)
-    spherical_aberration = torch.as_tensor(
-        spherical_aberration, dtype=torch.float, device=device
+    warnings.warn(
+        "This function is deprecated and will be removed in a future version. "
+        "Please use torch_ctf.calculate_ctf_1d instead.",
+        FutureWarning,
+        stacklevel=2,
     )
-    amplitude_contrast = torch.as_tensor(
-        amplitude_contrast, dtype=torch.float, device=device
+    return _calc_ctf_1d(
+        defocus=defocus,
+        voltage=voltage,
+        spherical_aberration=spherical_aberration,
+        amplitude_contrast=amplitude_contrast,
+        phase_shift=phase_shift,
+        pixel_size=pixel_size,
+        n_samples=n_samples,
+        oversampling_factor=oversampling_factor,
     )
-    phase_shift = torch.as_tensor(phase_shift, dtype=torch.float, device=device)
-    pixel_size = torch.as_tensor(pixel_size, dtype=torch.float, device=device)
-
-    # construct frequency vector and rescale cycles / px -> cycles / Å
-    fftfreq_grid = torch.linspace(0, 0.5, steps=n_samples)  # (n_samples,
-    # oversampling...
-    if oversampling_factor > 1:
-        frequency_delta = 0.5 / (n_samples - 1)
-        oversampled_frequency_delta = frequency_delta / oversampling_factor
-        oversampled_interval_length = oversampled_frequency_delta * (
-            oversampling_factor - 1
-        )
-        per_frequency_deltas = torch.linspace(
-            0, oversampled_interval_length, steps=oversampling_factor
-        )
-        per_frequency_deltas -= oversampled_interval_length / 2
-        per_frequency_deltas = einops.rearrange(per_frequency_deltas, "os -> os 1")
-        fftfreq_grid = fftfreq_grid + per_frequency_deltas
-
-    # Add singletary frequencies according to the dimensions of fftfreq_grid
-    expansion_string = "... -> ... " + " ".join(["1"] * fftfreq_grid.ndim)
-
-    pixel_size = einops.rearrange(pixel_size, expansion_string)
-    defocus = einops.rearrange(defocus, expansion_string)
-    voltage = einops.rearrange(voltage, expansion_string)
-    spherical_aberration = einops.rearrange(spherical_aberration, expansion_string)
-    phase_shift = einops.rearrange(phase_shift, expansion_string)
-    amplitude_contrast = einops.rearrange(amplitude_contrast, expansion_string)
-
-    fftfreq_grid = fftfreq_grid / pixel_size
-
-    # calculate ctf
-    ctf = -torch.sin(
-        calculate_total_phase_shift(
-            defocus_um=defocus,
-            voltage_kv=voltage,
-            spherical_aberration_mm=spherical_aberration,
-            phase_shift_degrees=phase_shift,
-            amplitude_contrast_fraction=amplitude_contrast,
-            fftfreq_grid_angstrom_squared=fftfreq_grid**2,
-        )
-    )
-
-    if oversampling_factor > 1:
-        # reduce oversampling
-        ctf = einops.reduce(
-            ctf, "... os k -> ... k", reduction="mean"
-        )  # oversampling reduction
-    return ctf
