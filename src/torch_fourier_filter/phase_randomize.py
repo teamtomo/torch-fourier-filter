@@ -48,10 +48,10 @@ def phase_randomize(
         device=device,
     )
 
-    # Create mask for frequencies above cuton
-    freq_mask = freq_grid > cuton
+    # Create mask for frequencies at or above cuton (using absolute value)
+    freq_mask = torch.abs(freq_grid) >= cuton
 
-    # Generate random phases between -π and π only where freq > cuton
+    # Generate random phases between -π and π only where |freq| >= cuton
     random_phases = torch.zeros_like(dft, dtype=torch.float32)
     random_phases[..., freq_mask] = (
         torch.rand(freq_mask.sum(), device=dft.device) * (2 * torch.pi) - torch.pi
@@ -60,7 +60,7 @@ def phase_randomize(
     # Convert to complex numbers (e^(iθ))
     phase_factors = torch.complex(torch.cos(random_phases), torch.sin(random_phases))
 
-    # Keep original phases where freq <= cuton
+    # Keep original phases where |freq| < cuton
     original_phases = torch.angle(dft)
     original_phase_factors = torch.complex(
         torch.cos(original_phases), torch.sin(original_phases)

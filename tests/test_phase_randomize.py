@@ -36,11 +36,11 @@ def test_phase_randomize():
         torch.abs(dft_2d_rfft), torch.abs(randomized_2d_rfft)
     ), "Magnitude spectrum not preserved for rfft input"
 
-    # Ensure phases are randomized only above cuton
+    # Ensure phases are randomized only at or above cuton
     freq_grid_2d = fftfreq_grid(
         image_shape_2d, rfft=False, fftshift=False, norm=True, device=device
     )
-    freq_mask_2d = freq_grid_2d > cuton
+    freq_mask_2d = torch.abs(freq_grid_2d) >= cuton
     original_phases_2d = torch.angle(dft_2d)
     randomized_phases_2d = torch.angle(randomized_2d)
     assert torch.allclose(
@@ -48,12 +48,12 @@ def test_phase_randomize():
     ), "Phases not preserved below cuton for 2D input"
     assert not torch.allclose(
         original_phases_2d[freq_mask_2d], randomized_phases_2d[freq_mask_2d]
-    ), "Phases not randomized above cuton for 2D input"
+    ), "Phases not randomized at or above cuton for 2D input"
 
     freq_grid_3d = fftfreq_grid(
         image_shape_3d, rfft=False, fftshift=False, norm=True, device=device
     )
-    freq_mask_3d = freq_grid_3d > cuton
+    freq_mask_3d = torch.abs(freq_grid_3d) >= cuton
     original_phases_3d = torch.angle(dft_3d)
     randomized_phases_3d = torch.angle(randomized_3d)
     assert torch.allclose(
@@ -61,4 +61,4 @@ def test_phase_randomize():
     ), "Phases not preserved below cuton for 3D input"
     assert not torch.allclose(
         original_phases_3d[freq_mask_3d], randomized_phases_3d[freq_mask_3d]
-    ), "Phases not randomized above cuton for 3D input"
+    ), "Phases not randomized at or above cuton for 3D input"
