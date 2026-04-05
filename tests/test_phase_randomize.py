@@ -1,7 +1,9 @@
+import math
+
 import torch
 from torch_grid_utils.fftfreq_grid import fftfreq_grid
 
-from torch_fourier_filter.phase_randomize import phase_randomize
+from torch_fourier_filter.phase_randomize import phase_permutation, phase_randomize
 
 
 def test_phase_randomize():
@@ -62,3 +64,46 @@ def test_phase_randomize():
     assert not torch.allclose(
         original_phases_3d[freq_mask_3d], randomized_phases_3d[freq_mask_3d]
     ), "Phases not randomized at or above cuton for 3D input"
+
+
+def test_phase_randomize_cuton_zero():
+    image_shape = (32, 32)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dft = torch.fft.fft2(torch.rand(image_shape, device=device))
+    out = phase_randomize(dft, image_shape, cuton=0, device=device)
+    assert torch.allclose(torch.abs(dft), torch.abs(out))
+
+
+def test_phase_permutation():
+    image_shape_2d = (64, 64)
+    image_shape_3d = (32, 64, 64)
+    cuton = 0.1
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    dft_2d = torch.fft.fft2(torch.rand(image_shape_2d, device=device))
+    permuted_2d = phase_permutation(dft_2d, image_shape_2d, cuton=cuton, device=device)
+    assert torch.allclose(torch.abs(dft_2d), torch.abs(permuted_2d))
+
+    dft_3d = torch.fft.fftn(torch.rand(image_shape_3d, device=device))
+    permuted_3d = phase_permutation(dft_3d, image_shape_3d, cuton=cuton, device=device)
+    assert torch.allclose(torch.abs(dft_3d), torch.abs(permuted_3d))
+
+    dft_2d_rfft = torch.fft.rfft2(torch.rand(image_shape_2d, device=device))
+    permuted_rfft = phase_permutation(
+        dft_2d_rfft, image_shape_2d, rfft=True, cuton=cuton, device=device
+    )
+    assert torch.allclose(torch.abs(dft_2d_rfft), torch.abs(permuted_rfft))
+
+    freq_grid_2d = fftfreq_grid(
+        image_shape_2d, rfft=False, fftshift=False, norm=True, device=device
+    )
+    freq_mask_2d = torch.abs(freq_grid_2d) >= cuton
+    op = torch.angle(dft_2d)
+    pp = torch.angle(permuted_2d)
+    assert torch.allclose(op[~freq_mask_2d], pp[~freq_mask_2d])
+    wo = torch.remainder(op[freq_mask_2d].flatten() + math.pi, 2 * math.pi)
+    wp = torch.remainder(pp[freq_mask_2d].flatten() + math.pi, 2 * math.pi)
+    assert torch.allclose(torch.sort(wo)[0], torch.sort(wp)[0], atol=1e-3, rtol=1e-4)
+    assert not torch.allclose(
+        torch.exp(1j * op[freq_mask_2d]), torch.exp(1j * pp[freq_mask_2d])
+    )
