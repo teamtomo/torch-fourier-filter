@@ -107,3 +107,53 @@ def test_phase_permutation():
     assert not torch.allclose(
         torch.exp(1j * op[freq_mask_2d]), torch.exp(1j * pp[freq_mask_2d])
     )
+
+
+def test_phase_permutation_cuton_zero():
+    """Full-spectrum permutation uses _permute_all_phases (no freq grid)."""
+    image_shape = (24, 24)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dft = torch.fft.fft2(torch.rand(image_shape, device=device))
+    out = phase_permutation(dft, image_shape, cuton=0, device=device)
+    assert torch.allclose(torch.abs(dft), torch.abs(out))
+    wo = torch.remainder(torch.angle(dft).flatten() + math.pi, 2 * math.pi)
+    wp = torch.remainder(torch.angle(out).flatten() + math.pi, 2 * math.pi)
+    assert torch.allclose(torch.sort(wo)[0], torch.sort(wp)[0], atol=1e-3, rtol=1e-4)
+
+
+def test_phase_randomize_fftshift():
+    image_shape = (32, 32)
+    cuton = 0.1
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    x = torch.rand(image_shape, device=device)
+    dft = torch.fft.fftshift(torch.fft.fft2(x), dim=(-2, -1))
+    out = phase_randomize(dft, image_shape, cuton=cuton, fftshift=True, device=device)
+    assert torch.allclose(torch.abs(dft), torch.abs(out))
+    freq_grid = fftfreq_grid(
+        image_shape, rfft=False, fftshift=True, norm=True, device=device
+    )
+    freq_mask = torch.abs(freq_grid) >= cuton
+    op = torch.angle(dft)
+    out_phases = torch.angle(out)
+    assert torch.allclose(op[~freq_mask], out_phases[~freq_mask])
+    assert not torch.allclose(op[freq_mask], out_phases[freq_mask])
+
+
+def test_phase_permutation_fftshift():
+    image_shape = (32, 32)
+    cuton = 0.1
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    x = torch.rand(image_shape, device=device)
+    dft = torch.fft.fftshift(torch.fft.fft2(x), dim=(-2, -1))
+    out = phase_permutation(dft, image_shape, cuton=cuton, fftshift=True, device=device)
+    assert torch.allclose(torch.abs(dft), torch.abs(out))
+    freq_grid = fftfreq_grid(
+        image_shape, rfft=False, fftshift=True, norm=True, device=device
+    )
+    freq_mask = torch.abs(freq_grid) >= cuton
+    op = torch.angle(dft)
+    out_phases = torch.angle(out)
+    assert torch.allclose(op[~freq_mask], out_phases[~freq_mask])
+    wo = torch.remainder(op[freq_mask].flatten() + math.pi, 2 * math.pi)
+    wp = torch.remainder(out_phases[freq_mask].flatten() + math.pi, 2 * math.pi)
+    assert torch.allclose(torch.sort(wo)[0], torch.sort(wp)[0], atol=1e-3, rtol=1e-4)

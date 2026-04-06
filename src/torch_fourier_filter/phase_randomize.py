@@ -39,9 +39,11 @@ def phase_randomize(
 
     if cuton <= 0:
         # Full spectrum: random phases everywhere (no frequency grid needed)
-        random_phases = torch.rand(
-            dft.shape, device=dft.device, dtype=torch.float32
-        ) * (2 * torch.pi) - torch.pi
+        random_phases = (
+            torch.rand(dft.shape, device=dft.device, dtype=torch.float32)
+            * (2 * torch.pi)
+            - torch.pi
+        )
         phase_factors = torch.complex(
             torch.cos(random_phases), torch.sin(random_phases)
         )
